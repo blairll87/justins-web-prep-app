@@ -54,6 +54,80 @@ function fmtDate(dateStr) {
 }
 const catLabel = { school: 'School', testing: 'Testing', recs: 'Rec letters', essays: 'Essays', scholarship: 'Scholarship', custom: 'Other' };
 
+// --- Pacing engine (mirrors the logic in index.html) ---
+const STAGE_SETS = {
+  application: ['Not started', 'In progress', 'Submitted'],
+  essays: ['Not started', 'Drafting', 'Revising', 'Final'],
+  testscores: ['N/A', 'Scheduled', 'Taken', 'Sent'],
+  transcript: ['Not requested', 'Requested', 'Sent'],
+};
+const ITEM_LABELS = { application: 'Application', essays: 'Essays / supplements', testscores: 'Test scores', transcript: 'Transcript' };
+const ITEM_TIMING = {
+  application: [{ days: 30, stage: 1 }, { days: 5, stage: 2 }],
+  essays: [{ days: 35, stage: 1 }, { days: 21, stage: 2 }, { days: 7, stage: 3 }],
+  testscores: [{ days: 60, stage: 1 }, { days: 30, stage: 2 }, { days: 14, stage: 3 }],
+  transcript: [{ days: 21, stage: 1 }, { days: 7, stage: 2 }],
+};
+const REC_ASK_BY_DAYS = 42;
+const REC_FOLLOWUP_AFTER_DAYS = 14;
+
+function itemPacing(deadline, key, currentStage) {
+  const stages = STAGE_SETS[key];
+  if (currentStage >= stages.length - 1) return { status: 'done' };
+  const d = daysUntil(deadline);
+  const timing = ITEM_TIMING[key];
+  let target = 0;
+  timing.forEach(t => { if (d <= t.days) target = Math.max(target, t.stage); });
+  if (currentStage < target) return { status: 'behind', nextStage: currentStage + 1 };
+  const next = timing.find(t => t.stage === currentStage + 1);
+  if (next && d > next.days && d <= next.days + 7) return { status: 'upcoming', nextStage: currentStage + 1 };
+  return { status: 'ontrack' };
+}
+
+function priorityActions(schools) {
+  const actions = [];
+  (schools || []).forEach(s => {
+    if (s.submitted) return;
+    if (!s.deadline) return;
+    const d = daysUntil(s.deadline);
+    const items = s.items || {};
+
+    Object.keys(STAGE_SETS).forEach(key => {
+      const cur = (items[key] && items[key].stage) || 0;
+      const stages = STAGE_SETS[key];
+      const p = itemPacing(s.deadline, key, cur);
+      if (p.status === 'behind' || p.status === 'upcoming') {
+        const nextLabel = stages[p.nextStage];
+        actions.push({
+          urgency: p.status, days: d,
+          text: p.status === 'behind'
+            ? `${s.name}: ${ITEM_LABELS[key]} — aim to reach "${nextLabel}" now`
+            : `${s.name}: ${ITEM_LABELS[key]} — start moving toward "${nextLabel}" soon`
+        });
+      }
+    });
+
+    (s.customItems || []).forEach(ci => {
+      if (ci.stage >= 2) return;
+      if (d <= 14) actions.push({ urgency: 'behind', days: d, text: `${s.name}: ${ci.label} — deadline is close, get this started` });
+      else if (d <= 30) actions.push({ urgency: 'upcoming', days: d, text: `${s.name}: ${ci.label} — worth starting soon` });
+    });
+
+    (s.recLetters || []).forEach(rec => {
+      if (rec.stage === 'received') return;
+      if (rec.stage === 'not_asked') {
+        if (d <= REC_ASK_BY_DAYS) actions.push({ urgency: 'behind', days: d, text: `${s.name}: Ask ${rec.name} for a rec letter — recommended by now` });
+        else if (d <= REC_ASK_BY_DAYS + 14) actions.push({ urgency: 'upcoming', days: d, text: `${s.name}: Plan to ask ${rec.name} for a rec letter soon` });
+      } else if (rec.stage === 'asked' && rec.askedDate) {
+        const since = Math.floor((new Date() - new Date(rec.askedDate + 'T00:00:00')) / 86400000);
+        if (since >= REC_FOLLOWUP_AFTER_DAYS) actions.push({ urgency: 'behind', days: d, text: `${s.name}: Follow up with ${rec.name} about the rec letter — it's been ${since} days` });
+      }
+    });
+  });
+  actions.sort((a, b) => a.urgency === b.urgency ? a.days - b.days : (a.urgency === 'behind' ? -1 : 1));
+  return actions;
+}
+
 async function main() {
   const [emailConfig, appData] = await Promise.all([
     getDoc('config/emailjs'),
@@ -90,9 +164,14 @@ async function main() {
     .filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 7; })
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const summary = dueThisWeek.length
-    ? dueThisWeek.map(i => `${fmtDate(i.date)} — ${i.title} (${catLabel[i.category] || i.category})`).join('\n')
-    : 'Nothing due this week.';
+  const priActions = priorityActions(schools);
+  const actionsBlock = priActions.length
+    ? 'Focus this week:\n' + priActions.slice(0, 6).map(a => `- ${a.text}`).join('\n')
+    : 'Focus this week: nothing urgent — good pace.';
+  const deadlinesBlock = dueThisWeek.length
+    ? 'Deadlines this week:\n' + dueThisWeek.map(i => `- ${fmtDate(i.date)} — ${i.title} (${catLabel[i.category] || i.category})`).join('\n')
+    : 'Deadlines this week: nothing due.';
+  const summary = `${actionsBlock}\n\n${deadlinesBlock}`;
 
   console.log(`Sending weekly summary to ${recipients.length} recipient(s):\n${summary}`);
 
