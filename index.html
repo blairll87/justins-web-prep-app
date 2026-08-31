@@ -545,7 +545,10 @@
           <div class="field"><label>EmailJS Template ID</label><input id="ej-template" placeholder="template_xxxx"></div>
           <div class="field"><label>EmailJS Public Key</label><input id="ej-key" placeholder="public key"></div>
           <div class="field"><label>Recipient emails (comma separated)</label><input id="ej-recipients" placeholder="justin@email.com, mom@email.com"></div>
-          <button class="btn secondary small" onclick="saveEmailConfig()">Save</button>
+          <div style="display:flex; gap:8px;">
+            <button class="btn secondary small" onclick="saveEmailConfig()">Save</button>
+            <button class="btn blue small" onclick="sendTestEmail()">Send test email now</button>
+          </div>
           <div class="lookup-status" id="email-status"></div>
         </div>
       </div>
@@ -1366,8 +1369,16 @@ function saveEmailConfig(){
   };
   saveConfig();
   if(config.emailjs.key){ try{ emailjs.init(config.emailjs.key); }catch(e){} }
-  document.getElementById('email-status').textContent = 'Saved.';
-  document.getElementById('email-status').className = 'lookup-status success';
+  const statusEl = document.getElementById('email-status');
+  statusEl.textContent = 'Saved.';
+  statusEl.className = 'lookup-status success';
+  // Also store in Firestore so a scheduled job (no browser) can read these
+  // settings to send the weekly email automatically.
+  if(fbDb){
+    fbDb.collection('config').doc('emailjs').set(config.emailjs)
+      .then(()=>{ statusEl.textContent = 'Saved and ready for the weekly automation.'; })
+      .catch(err=> console.warn('Could not sync email config to Firestore', err));
+  }
 }
 
 function loadSettingsIntoInputs(){
@@ -1380,21 +1391,41 @@ function loadSettingsIntoInputs(){
   }
 }
 
-/* Weekly email summary — call sendWeeklyEmail() from a scheduled trigger
-   (e.g. a simple GitHub Action hitting this via a headless browser, or
-   manually) once EmailJS + Firebase are set up. */
+/* Weekly email summary — also called by the scheduled GitHub Action
+   (via a direct EmailJS API call, not this function) once configured. */
 async function sendWeeklyEmail(){
-  if(!config.emailjs || !config.emailjs.service) { console.warn('EmailJS not configured'); return; }
+  if(!config.emailjs || !config.emailjs.service) return { ok:false, reason:'EmailJS not configured' };
   const items = allItems().filter(i=>!i.done && daysUntil(i.date) >=0 && daysUntil(i.date) <=7);
   const summary = items.map(i=> `${fmtDate(i.date)} — ${i.title} (${catLabel[i.category]||i.category})`).join('\n') || 'Nothing due this week.';
   const recipients = (config.emailjs.recipients||'').split(',').map(s=>s.trim()).filter(Boolean);
+  if(!recipients.length) return { ok:false, reason:'No recipients set' };
+  let sent = 0, failed = 0;
   for(const to of recipients){
     try{
       await emailjs.send(config.emailjs.service, config.emailjs.template, {
         to_email: to,
         week_summary: summary,
       });
-    }catch(e){ console.warn('Email send failed for', to, e); }
+      sent++;
+    }catch(e){ console.warn('Email send failed for', to, e); failed++; }
+  }
+  return { ok: failed===0, sent, failed, total: recipients.length };
+}
+
+async function sendTestEmail(){
+  const statusEl = document.getElementById('email-status');
+  statusEl.textContent = 'Sending...';
+  statusEl.className = 'lookup-status loading';
+  const result = await sendWeeklyEmail();
+  if(result.ok){
+    statusEl.textContent = `Sent to ${result.sent} of ${result.total} recipient(s).`;
+    statusEl.className = 'lookup-status success';
+  } else if(result.sent > 0){
+    statusEl.textContent = `Sent to ${result.sent} of ${result.total}, ${result.failed} failed. Check recipient addresses.`;
+    statusEl.className = 'lookup-status error';
+  } else {
+    statusEl.textContent = 'Could not send: ' + (result.reason || 'check your EmailJS settings and try again.');
+    statusEl.className = 'lookup-status error';
   }
 }
 
