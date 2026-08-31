@@ -1,0 +1,23 @@
+name: Send Web Prep weekly email
+
+on:
+  schedule:
+    # 15:00 UTC = 7:00 AM Pacific Time (roughly — shifts an hour with
+    # daylight saving, so actual send time may drift between 7-8am).
+    # Change the day/time by editing the numbers below:
+    #   minute hour day-of-month month day-of-week (0 = Sunday)
+    - cron: '0 15 * * 0'
+  workflow_dispatch: {}   # lets you manually trigger a run from the Actions tab
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Send weekly summary email
+        env:
+          FIREBASE_PROJECT_ID: justins-web-prep-app
+        run: node scripts/send-weekly-email.js
