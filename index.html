@@ -321,6 +321,11 @@
   .step-dots span.active{ background: var(--red); }
   .suggestion-card{ border-left:3px solid var(--blue); }
   .disclaimer{ font-size:11px; color: var(--text-faint); margin-top:10px; font-style:italic; }
+  .scholarship-caution{
+    border-left:3px solid var(--amber); font-size:12.5px; color: var(--text-dim); line-height:1.5;
+    margin-bottom:18px;
+  }
+  .scholarship-caution strong{ color: var(--amber); }
 
   /* ---------- tips ---------- */
   .tip-cat{ margin-bottom: 26px; }
@@ -372,6 +377,7 @@
       <button class="nav-btn" data-view="total"><span class="nav-dot"></span>Everything</button>
       <button class="nav-btn" data-view="schools"><span class="nav-dot"></span>Schools</button>
       <button class="nav-btn" data-view="discovery"><span class="nav-dot"></span>Find Schools</button>
+      <button class="nav-btn" data-view="scholarships"><span class="nav-dot"></span>Scholarships</button>
       <button class="nav-btn" data-view="activities"><span class="nav-dot"></span>Activities</button>
       <button class="nav-btn" data-view="tips"><span class="nav-dot"></span>Tips</button>
       <button class="nav-btn" data-view="settings"><span class="nav-dot"></span>Settings</button>
@@ -512,6 +518,42 @@
         </div>
       </div>
       <div class="card" id="discovery-card"></div>
+    </section>
+
+    <!-- SCHOLARSHIPS -->
+    <section class="view" id="view-scholarships">
+      <div class="view-head">
+        <div>
+          <h1>Scholarships</h1>
+          <p>Track scholarships the same way as schools &mdash; deadlines, status, and a place to keep the details.</p>
+        </div>
+        <button class="btn" onclick="openScholarshipModal()">+ Add scholarship</button>
+      </div>
+
+      <div class="card discover-callout" onclick="showView('scholarshipfinder')" style="margin-bottom:20px;">
+        <div class="discover-callout-text">
+          <div class="discover-eyebrow">Don't have a list yet?</div>
+          <h3>Find scholarships that fit you</h3>
+          <p>Answer a few questions and get real starting points to research &mdash; with a link to check and a reminder to loop in Mom before applying to anything.</p>
+        </div>
+        <div class="discover-callout-cta">Start <span>&rarr;</span></div>
+      </div>
+
+      <div id="scholarships-content" class="stack"></div>
+    </section>
+
+    <!-- SCHOLARSHIP FINDER -->
+    <section class="view" id="view-scholarshipfinder">
+      <div class="view-head">
+        <div>
+          <h1>Find scholarships</h1>
+          <p>A few questions, then some real scholarships to look into &mdash; always verify before applying.</p>
+        </div>
+      </div>
+      <div class="card scholarship-caution">
+        <strong>Before applying to anything:</strong> these are AI-assisted suggestions, not verified or endorsed. Click the source link to check it's real, and talk it over with Mom &mdash; especially before giving out personal info. Legitimate scholarships never charge a fee to apply.
+      </div>
+      <div class="card" id="scholarship-discovery-card"></div>
     </section>
 
     <!-- ACTIVITIES -->
@@ -667,6 +709,22 @@
   </div>
 </div>
 
+<!-- SCHOLARSHIP MODAL -->
+<div class="modal-bg" id="scholarship-modal-bg">
+  <div class="modal">
+    <h2 id="scholarship-modal-title">Add a scholarship</h2>
+    <div class="field"><label>Name</label><input id="scholarship-name" placeholder="e.g. Coca-Cola Scholars Program"></div>
+    <div class="field"><label>Amount (optional)</label><input id="scholarship-amount" placeholder="e.g. $2,500 or Varies"></div>
+    <div class="field"><label>Deadline</label><input type="date" id="scholarship-deadline"></div>
+    <div class="field"><label>Eligibility / requirements</label><textarea id="scholarship-eligibility" placeholder="Who can apply, what's required"></textarea></div>
+    <div class="field"><label>Source link (optional)</label><input id="scholarship-source" placeholder="https://..."></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeModal('scholarship-modal-bg')">Cancel</button>
+      <button class="btn" onclick="saveScholarship()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Firebase (compat) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -689,7 +747,7 @@ let cloudSynced = false;  // true once we've confirmed a Firestore connection
 function loadData(){
   const raw = localStorage.getItem(STORAGE_KEY);
   if(raw) return JSON.parse(raw);
-  return { tasks: [], schools: [], activities: [] };
+  return { tasks: [], schools: [], activities: [], scholarships: [] };
 }
 /* saveData: writes to localStorage immediately (fast, offline-safe cache),
    and if Firebase is connected, also writes to Firestore so every device
@@ -708,6 +766,7 @@ function loadConfig(){
 function saveConfig(){ localStorage.setItem(CONFIG_KEY, JSON.stringify(config)); }
 
 let state = loadData();
+state.scholarships = state.scholarships || [];
 let config = loadConfig();
 
 /* seed example schools on very first run so the app isn't blank.
@@ -740,7 +799,7 @@ function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toStr
 /* =========================================================
    Navigation
    ========================================================= */
-const views = ['home','weekly','monthly','total','schools','discovery','activities','tips','settings'];
+const views = ['home','weekly','monthly','total','schools','discovery','scholarships','scholarshipfinder','activities','tips','settings'];
 document.getElementById('nav').addEventListener('click', (e)=>{
   const btn = e.target.closest('.nav-btn');
   if(!btn) return;
@@ -750,13 +809,15 @@ function showView(name){
   views.forEach(v=>{
     document.getElementById('view-'+v).classList.toggle('active', v===name);
   });
-  document.querySelectorAll('.nav-btn').forEach(b=> b.classList.toggle('active', b.dataset.view===name));
+  document.querySelectorAll('.nav-btn').forEach(b=> b.classList.toggle('active', b.dataset.view===name || (name==='scholarshipfinder' && b.dataset.view==='scholarships')));
   if(name==='home') renderHome();
   if(name==='weekly') renderWeekly();
   if(name==='monthly') renderMonthly();
   if(name==='total') renderTotal();
   if(name==='schools') renderSchools();
   if(name==='discovery') renderDiscovery();
+  if(name==='scholarships') renderScholarships();
+  if(name==='scholarshipfinder') renderScholarshipDiscovery();
   if(name==='activities') renderActivities();
   if(name==='tips') renderTips();
 }
@@ -771,6 +832,13 @@ function allItems(){
       id: 's-'+s.id, title: s.name + ' — application due', category:'school',
       date: s.deadline, notes: s.type + (s.notes? ' · '+s.notes : ''), done: s.submitted || false,
       schoolId: s.id
+    });
+  });
+  (state.scholarships||[]).forEach(sc=>{
+    items.push({
+      id: 'sc-'+sc.id, title: sc.name + ' — scholarship due', category:'scholarship',
+      date: sc.deadline, notes: sc.amount || '', done: sc.stage>=2,
+      scholarshipId: sc.id
     });
   });
   return items.filter(i=>i.date).sort((a,b)=> a.date.localeCompare(b.date));
@@ -921,6 +989,9 @@ function toggleDone(id){
     const sid = id.slice(2);
     const s = state.schools.find(s=>s.id===sid);
     if(s){ s.submitted = !s.submitted; }
+  } else if(id.startsWith('sc-')){
+    const sc = state.scholarships.find(sc=>sc.id===id.slice(3));
+    if(sc){ sc.stage = sc.stage>=2 ? 0 : 2; }
   } else {
     const t = state.tasks.find(t=>t.id===id);
     if(t){ t.done = !t.done; }
@@ -929,20 +1000,26 @@ function toggleDone(id){
   renderWeekly(); renderTotal(); renderMonthly();
 }
 /* Generic edit/delete dispatch — routes to the school modal for
-   school-deadline rows (id starting "s-"), or the task modal/delete
-   for everything else (custom deadlines, testing, recs, essays, etc). */
+   school-deadline rows (id starting "s-"), scholarship modal for
+   "sc-" rows, or the task modal/delete for everything else (custom
+   deadlines, testing, recs, essays, etc). */
 function editItem(id){
-  if(id.startsWith('s-')){
+  if(id.startsWith('s-') && !id.startsWith('sc-')){
     const s = state.schools.find(s=>s.id===id.slice(2));
     if(s) openSchoolModal(s);
+  } else if(id.startsWith('sc-')){
+    const sc = state.scholarships.find(sc=>sc.id===id.slice(3));
+    if(sc) openScholarshipModal(sc);
   } else {
     const t = state.tasks.find(t=>t.id===id);
     if(t) openTaskModal(t);
   }
 }
 function deleteItem(id){
-  if(id.startsWith('s-')){
+  if(id.startsWith('s-') && !id.startsWith('sc-')){
     deleteSchool(id.slice(2));
+  } else if(id.startsWith('sc-')){
+    deleteScholarship(id.slice(3));
   } else {
     deleteTask(id);
   }
@@ -1435,6 +1512,162 @@ async function getSuggestions(){
 }
 
 /* =========================================================
+   SCHOLARSHIPS VIEW — tracked list, same pattern as Schools
+   ========================================================= */
+function renderScholarships(){
+  const el = document.getElementById('scholarships-content');
+  if(!state.scholarships.length){
+    el.innerHTML = `<div class="empty">No scholarships added yet. Add one manually, or use Find Scholarships to get starting points.</div>`;
+    return;
+  }
+  const stageLabels = ['Not started','In progress','Submitted'];
+  el.innerHTML = state.scholarships.map(sc=>{
+    const d = daysUntil(sc.deadline);
+    return `
+    <div class="card school-card">
+      <div class="school-card-top">
+        <div>
+          <div class="school-name">${escapeHtml(sc.name)} ${sc.amount? `<span style="color:var(--text-dim); font-weight:500; font-size:13px;">· ${escapeHtml(sc.amount)}</span>`:''}</div>
+          <div class="school-deadline">${fmtDate(sc.deadline)} ${d>=0? `(${d} days)` : `<span style="color:var(--red)">overdue</span>`}</div>
+        </div>
+        <div class="row-actions">
+          <button class="icon-btn" title="Edit" onclick='openScholarshipModal(${JSON.stringify(sc).replace(/'/g,"&apos;")})'>&#9998;</button>
+          <button class="btn secondary small" onclick="deleteScholarship('${sc.id}')">Remove</button>
+        </div>
+      </div>
+      ${sc.eligibility? `<p style="font-size:12.5px; color:var(--text-dim); margin-top:10px;">${escapeHtml(sc.eligibility)}</p>` : ''}
+      ${sc.sourceUrl? `<div class="lookup-source" style="margin-top:6px;"><a href="${escapeHtml(sc.sourceUrl)}" target="_blank" rel="noopener">Check the source &rarr;</a></div>` : ''}
+      <div class="item-list" style="margin-top:14px;">
+        <div class="item-row">
+          <span class="item-label">Status</span>
+          <select onchange="updateScholarshipStage('${sc.id}', this.selectedIndex)">
+            ${stageLabels.map((label,i)=>`<option value="${i}" ${i===(sc.stage||0)?'selected':''}>${label}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function updateScholarshipStage(id, stageIndex){
+  const sc = state.scholarships.find(sc=>sc.id===id);
+  if(sc){ sc.stage = stageIndex; saveData(); renderScholarships(); renderWeekly(); renderTotal(); renderMonthly(); renderHome(); }
+}
+function deleteScholarship(id){
+  if(!confirm('Remove this scholarship?')) return;
+  state.scholarships = state.scholarships.filter(sc=>sc.id!==id);
+  saveData(); renderScholarships(); renderWeekly(); renderTotal(); renderMonthly(); renderHome();
+}
+let editingScholarshipId = null;
+function openScholarshipModal(sc){
+  editingScholarshipId = sc ? sc.id : null;
+  document.getElementById('scholarship-modal-title').textContent = sc ? 'Edit scholarship' : 'Add a scholarship';
+  document.getElementById('scholarship-name').value = sc ? sc.name : '';
+  document.getElementById('scholarship-amount').value = sc ? (sc.amount||'') : '';
+  document.getElementById('scholarship-deadline').value = sc ? sc.deadline : '';
+  document.getElementById('scholarship-eligibility').value = sc ? (sc.eligibility||'') : '';
+  document.getElementById('scholarship-source').value = sc ? (sc.sourceUrl||'') : '';
+  document.getElementById('scholarship-modal-bg').classList.add('active');
+}
+function saveScholarship(){
+  const name = document.getElementById('scholarship-name').value.trim();
+  const amount = document.getElementById('scholarship-amount').value.trim();
+  const deadline = document.getElementById('scholarship-deadline').value;
+  const eligibility = document.getElementById('scholarship-eligibility').value.trim();
+  const sourceUrl = document.getElementById('scholarship-source').value.trim();
+  if(!name || !deadline){ alert('Add at least a name and deadline.'); return; }
+  if(editingScholarshipId){
+    const sc = state.scholarships.find(sc=>sc.id===editingScholarshipId);
+    if(sc){ sc.name=name; sc.amount=amount; sc.deadline=deadline; sc.eligibility=eligibility; sc.sourceUrl=sourceUrl||sc.sourceUrl||null; }
+  } else {
+    state.scholarships.push({ id: uid(), name, amount, deadline, eligibility, sourceUrl: sourceUrl||null, stage:0 });
+  }
+  saveData();
+  closeModal('scholarship-modal-bg');
+  renderScholarships(); renderWeekly(); renderTotal(); renderMonthly(); renderHome();
+}
+
+/* --- Scholarship finder: same shape as Find Schools --- */
+const SCHOLARSHIP_QUESTIONS = [
+  { key:'field', q:'What field or major (if you know it)?', opts:['STEM','Business','Arts/Humanities','Undecided / open to anything'] },
+  { key:'residency', q:'Where does he live?', opts:['California','Another US state','Not sure it matters'] },
+  { key:'type', q:'Any scholarship type to focus on?', opts:['Merit/academic','Community service & leadership','Specific background or identity','Any/all of the above'] },
+  { key:'interest', q:'Any hobby or activity worth searching around?', opts:['Sports/athletics','Arts (music, art, writing)','STEM projects/clubs','No specific angle'] },
+];
+let scholarshipAnswers = {};
+let scholarshipStep = 0;
+function renderScholarshipDiscovery(){
+  const el = document.getElementById('scholarship-discovery-card');
+  if(scholarshipStep >= SCHOLARSHIP_QUESTIONS.length){ renderScholarshipResults(); return; }
+  const q = SCHOLARSHIP_QUESTIONS[scholarshipStep];
+  el.innerHTML = `
+    <div class="step-dots">${SCHOLARSHIP_QUESTIONS.map((_,i)=>`<span class="${i===scholarshipStep?'active':''}"></span>`).join('')}</div>
+    <h3 style="font-size:16px; margin-bottom:14px;">${q.q}</h3>
+    <div class="opt-grid">
+      ${q.opts.map(o=>`<button class="opt-btn ${scholarshipAnswers[q.key]===o?'selected':''}" onclick="answerScholarshipDiscovery('${q.key}', ${JSON.stringify(o).replace(/"/g,'&quot;')})">${o}</button>`).join('')}
+    </div>
+    <div class="modal-actions" style="margin-top:20px;">
+      ${scholarshipStep>0? `<button class="btn secondary" onclick="scholarshipStep--; renderScholarshipDiscovery();">Back</button>` : '<div></div>'}
+      <button class="btn" onclick="nextScholarshipDiscovery()" ${scholarshipAnswers[q.key]?'':'disabled style="opacity:0.5;"'}>Continue</button>
+    </div>`;
+}
+function answerScholarshipDiscovery(key, val){ scholarshipAnswers[key] = val; renderScholarshipDiscovery(); }
+function nextScholarshipDiscovery(){
+  if(!scholarshipAnswers[SCHOLARSHIP_QUESTIONS[scholarshipStep].key]) return;
+  scholarshipStep++;
+  renderScholarshipDiscovery();
+}
+function renderScholarshipResults(){
+  const el = document.getElementById('scholarship-discovery-card');
+  el.innerHTML = `
+    <h3 style="font-size:16px; margin-bottom:10px;">Your search</h3>
+    <div class="stack" style="margin-bottom:20px;">
+      ${SCHOLARSHIP_QUESTIONS.map(q=>`<div style="font-size:13px; color:var(--text-dim);"><strong style="color:var(--text);">${q.q}</strong> — ${scholarshipAnswers[q.key]}</div>`).join('')}
+    </div>
+    <button class="btn blue" onclick="getScholarshipSuggestions()">Find scholarships</button>
+    <button class="btn secondary" style="margin-left:8px;" onclick="restartScholarshipDiscovery()">Start over</button>
+    <div id="scholarship-results" style="margin-top:20px;"></div>
+  `;
+}
+function restartScholarshipDiscovery(){ scholarshipAnswers = {}; scholarshipStep = 0; renderScholarshipDiscovery(); }
+
+async function getScholarshipSuggestions(){
+  const resultsEl = document.getElementById('scholarship-results');
+  resultsEl.innerHTML = `<div class="lookup-status loading">Researching some real scholarships…</div>`;
+  try{
+    const prompt = `A US high school senior has: field/major=${scholarshipAnswers.field}, residency=${scholarshipAnswers.residency}, scholarship type interest=${scholarshipAnswers.type}, activity angle=${scholarshipAnswers.interest}. Find 5 real, currently-active scholarships (not expired, actually accepting applications for the current cycle) that plausibly fit. For each include the source URL where you found it (ideally the scholarship's own official page). Respond ONLY as JSON array of objects with keys: name, amount, deadline (YYYY-MM-DD if known, else null), eligibility (one short sentence), source_url. No markdown, no extra text.`;
+    const result = await callClaude(prompt, 'You are a factual scholarship research assistant for a family. Only report real, currently active, verifiable scholarships with a real source URL. Flag nothing that requires a payment to apply — legitimate scholarships never charge a fee. Never write essay or application content.', true);
+    let list;
+    try{ list = JSON.parse(result.replace(/```json|```/g,'').trim()); }
+    catch(e){ throw new Error('parse fail'); }
+
+    resultsEl.innerHTML = `
+      <div class="stack">
+        ${list.map((sc,i)=>`
+          <div class="card suggestion-card">
+            <div style="font-weight:700; font-size:14px;">${escapeHtml(sc.name)} ${sc.amount? `<span style="color:var(--text-dim); font-weight:500;">· ${escapeHtml(sc.amount)}</span>`:''}</div>
+            ${sc.deadline? `<div style="font-size:12px; color:var(--text-dim); margin-top:2px;">Deadline: ${escapeHtml(sc.deadline)}</div>`:''}
+            <div style="font-size:13px; margin-top:8px;">${escapeHtml(sc.eligibility||'')}</div>
+            ${sc.source_url? `<div class="lookup-source" style="margin-top:8px;"><a href="${escapeHtml(sc.source_url)}" target="_blank" rel="noopener">Check the source &rarr;</a></div>`:''}
+            <button class="btn secondary small" style="margin-top:10px;" onclick='trackSuggestedScholarship(${JSON.stringify(sc).replace(/'/g,"&apos;")})'>+ Track this</button>
+          </div>`).join('')}
+      </div>
+      <div class="disclaimer">Starting points only — verify each one is real and currently open before applying, and check with Mom first.</div>
+    `;
+  } catch(err){
+    resultsEl.innerHTML = `<div class="lookup-status error">Couldn't fetch suggestions (check Settings for API setup). Try a site like the College Board's BigFuture or your school counselor in the meantime.</div>`;
+  }
+}
+function trackSuggestedScholarship(sc){
+  state.scholarships.push({
+    id: uid(), name: sc.name||'Untitled scholarship', amount: sc.amount||'',
+    deadline: sc.deadline || new Date().toISOString().slice(0,10),
+    eligibility: sc.eligibility||'', sourceUrl: sc.source_url||null, stage:0
+  });
+  saveData();
+  alert(`Added "${sc.name}" to your Scholarships list.`);
+}
+
+/* =========================================================
    ACTIVITIES VIEW
    ========================================================= */
 function renderActivities(){
@@ -1575,6 +1808,7 @@ function attachCloudSync(){
       state.tasks = state.tasks || [];
       state.schools = state.schools || [];
       state.activities = state.activities || [];
+      state.scholarships = state.scholarships || [];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } else {
       // first device to connect seeds the cloud doc with whatever's local
