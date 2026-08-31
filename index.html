@@ -1634,11 +1634,20 @@ async function getScholarshipSuggestions(){
   const resultsEl = document.getElementById('scholarship-results');
   resultsEl.innerHTML = `<div class="lookup-status loading">Researching some real scholarships…</div>`;
   try{
-    const prompt = `A US high school senior has: field/major=${scholarshipAnswers.field}, residency=${scholarshipAnswers.residency}, scholarship type interest=${scholarshipAnswers.type}, activity angle=${scholarshipAnswers.interest}. Find 5 real, currently-active scholarships (not expired, actually accepting applications for the current cycle) that plausibly fit. For each include the source URL where you found it (ideally the scholarship's own official page). Respond ONLY as JSON array of objects with keys: name, amount, deadline (YYYY-MM-DD if known, else null), eligibility (one short sentence), source_url. No markdown, no extra text.`;
-    const result = await callClaude(prompt, 'You are a factual scholarship research assistant for a family. Only report real, currently active, verifiable scholarships with a real source URL. Flag nothing that requires a payment to apply — legitimate scholarships never charge a fee. Never write essay or application content.', true);
+    const prompt = `A US high school senior has: field/major=${scholarshipAnswers.field}, residency=${scholarshipAnswers.residency}, scholarship type interest=${scholarshipAnswers.type}, activity angle=${scholarshipAnswers.interest}. Find 5 real, currently-active scholarships (not expired, actually accepting applications for the current cycle) that plausibly fit. For each include the source URL where you found it (ideally the scholarship's own official page). Respond ONLY as a JSON array of objects with keys: name, amount, deadline, eligibility, source_url — use an empty string "" for any field you don't know, never the word null or markdown formatting. Output nothing except the JSON array itself.`;
+    const result = await callClaude(prompt, 'You are a factual scholarship research assistant for a family. Only report real, currently active, verifiable scholarships with a real source URL. Flag nothing that requires a payment to apply — legitimate scholarships never charge a fee. Never write essay or application content. Always respond with only a raw JSON array, no commentary before or after it.', true);
+
     let list;
-    try{ list = JSON.parse(result.replace(/```json|```/g,'').trim()); }
-    catch(e){ throw new Error('parse fail'); }
+    try{
+      list = JSON.parse(result.replace(/```json|```/g,'').trim());
+    } catch(e){
+      // Fallback: the model sometimes adds a stray sentence before/after the
+      // array despite instructions — pull out just the [ ... ] portion.
+      const match = result.match(/\[[\s\S]*\]/);
+      if(match){ list = JSON.parse(match[0]); }
+      else { console.error('Scholarship lookup: could not find JSON in response:', result); throw new Error('No JSON array found in response'); }
+    }
+    if(!Array.isArray(list) || !list.length) throw new Error('Response parsed but contained no scholarships');
 
     resultsEl.innerHTML = `
       <div class="stack">
@@ -1654,7 +1663,8 @@ async function getScholarshipSuggestions(){
       <div class="disclaimer">Starting points only — verify each one is real and currently open before applying, and check with Mom first.</div>
     `;
   } catch(err){
-    resultsEl.innerHTML = `<div class="lookup-status error">Couldn't fetch suggestions (check Settings for API setup). Try a site like the College Board's BigFuture or your school counselor in the meantime.</div>`;
+    console.error('Scholarship lookup failed:', err);
+    resultsEl.innerHTML = `<div class="lookup-status error">Couldn't fetch suggestions (${escapeHtml(err.message||'unknown error')}). Check Settings for API setup, or try a site like the College Board's BigFuture in the meantime.</div>`;
   }
 }
 function trackSuggestedScholarship(sc){
@@ -1849,7 +1859,7 @@ async function callClaude(userPrompt, systemPrompt, useSearch){
   const apiKey = await getApiKey();
   const body = {
     model: 'claude-sonnet-5',
-    max_tokens: 1024,
+    max_tokens: 2048,
     system: systemPrompt,
     messages: [{ role:'user', content: userPrompt }],
   };
