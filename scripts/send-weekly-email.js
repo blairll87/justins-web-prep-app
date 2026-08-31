@@ -147,6 +147,7 @@ async function main() {
 
   const tasks = appData?.tasks || [];
   const schools = appData?.schools || [];
+  const scholarships = appData?.scholarships || [];
 
   const items = [];
   for (const t of tasks) {
@@ -158,6 +159,11 @@ async function main() {
     if (s.submitted) continue;
     if (!s.deadline) continue;
     items.push({ title: `${s.name} — application due`, category: 'school', date: s.deadline, notes: s.type });
+  }
+  for (const sc of scholarships) {
+    if (sc.stage >= 2) continue;
+    if (!sc.deadline) continue;
+    items.push({ title: `${sc.name} — scholarship due`, category: 'scholarship', date: sc.deadline, notes: sc.amount || '' });
   }
 
   const dueThisWeek = items
