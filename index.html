@@ -263,6 +263,23 @@
   .checklist input{ accent-color: var(--red); width:15px; height:15px; }
   .checklist label.checked{ color: var(--text); }
 
+  .item-list{ margin-top:14px; display:flex; flex-direction:column; gap:8px; }
+  .item-row{ display:flex; align-items:center; gap:8px; }
+  .item-label{ font-size:13px; color: var(--text-dim); flex:1; min-width:0; }
+  .item-row select{
+    background: var(--bg-card); border:1px solid var(--line); color: var(--text);
+    font-size:12px; padding:5px 8px; border-radius:7px; font-family:inherit;
+  }
+  .pacing-badge{
+    font-size:10px; font-weight:700; padding:2px 8px; border-radius:999px; flex-shrink:0; white-space:nowrap;
+  }
+  .pacing-badge.behind{ background: var(--red-dim); color:#ffc3ca; }
+  .pacing-badge.upcoming{ background:#3a2f0e; color: var(--amber); }
+  .pacing-badge.ontrack{ background:#0e2f2a; color: var(--green); }
+  .pacing-badge.done{ background: var(--bg-raised); color: var(--text-faint); }
+  .rec-letters{ margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
+  .rec-letters-head{ font-size:11px; color: var(--text-faint); font-weight:700; margin-bottom:8px; }
+
   /* ---------- forms / modal ---------- */
   .modal-bg{
     position:fixed; inset:0; background: rgba(10,9,14,0.72); backdrop-filter: blur(2px);
@@ -287,6 +304,8 @@
   .lookup-status.loading{ color: var(--amber); }
   .lookup-status.error{ color: var(--red); }
   .lookup-status.success{ color: var(--green); }
+  .lookup-source{ margin-top:4px; }
+  .lookup-source a{ font-size:12px; color: var(--blue); text-decoration:underline; }
 
   /* ---------- discovery ---------- */
   .q-step{ display:none; }
@@ -396,6 +415,13 @@
       </div>
 
       <div class="home-stats" id="home-stats"></div>
+
+      <div class="card home-panel" id="home-priority-panel" style="margin-bottom:16px;">
+        <div class="home-panel-head">
+          <h3>Priority actions</h3>
+        </div>
+        <div id="home-priority" class="stack"></div>
+      </div>
 
       <div class="home-grid">
         <div class="card home-panel">
@@ -588,6 +614,7 @@
     <div class="field"><label>School name</label><input id="school-name" placeholder="e.g. UC San Diego"></div>
     <button class="btn blue small" style="margin-bottom:14px;" onclick="lookupSchool()">Look up deadlines &amp; requirements</button>
     <div class="lookup-status" id="school-lookup-status"></div>
+    <div class="lookup-source" id="school-lookup-source"></div>
     <div class="field"><label>Application type</label>
       <select id="school-type"><option>Early Action</option><option>Early Decision</option><option>Regular Decision</option><option>Rolling</option></select>
     </div>
@@ -612,6 +639,30 @@
     <div class="modal-actions">
       <button class="btn secondary" onclick="closeModal('activity-modal-bg')">Cancel</button>
       <button class="btn" onclick="saveActivity()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- CUSTOM SCHOOL ITEM MODAL -->
+<div class="modal-bg" id="custom-item-modal-bg">
+  <div class="modal">
+    <h2>Add custom item</h2>
+    <div class="field"><label>What does this school need?</label><input id="custom-item-label" placeholder="e.g. Portfolio, Alumni interview, Honors application"></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeModal('custom-item-modal-bg')">Cancel</button>
+      <button class="btn" onclick="saveCustomItem()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- REC LETTER MODAL -->
+<div class="modal-bg" id="rec-letter-modal-bg">
+  <div class="modal">
+    <h2>Add a recommender</h2>
+    <div class="field"><label>Name</label><input id="rec-letter-name" placeholder="e.g. Ms. Rivera"></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeModal('rec-letter-modal-bg')">Cancel</button>
+      <button class="btn" onclick="saveRecLetter()">Add</button>
     </div>
   </div>
 </div>
@@ -785,6 +836,15 @@ function renderHome(){
     </div>
   `;
 
+  const priActions = priorityActions().slice(0,5);
+  document.getElementById('home-priority').innerHTML = priActions.length
+    ? priActions.map(a=>`
+        <div class="task-row">
+          <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${a.urgency==='behind'?'now':'soon'}</span>
+          <div class="task-body"><div class="task-title">${escapeHtml(a.text)}</div></div>
+        </div>`).join('')
+    : `<div class="empty">Nothing urgent right now — nice pace.</div>`;
+
   const nextUpEl = document.getElementById('home-nextup');
   const nextItems = upcoming.slice(0,5);
   nextUpEl.innerHTML = nextItems.length
@@ -793,9 +853,9 @@ function renderHome(){
 
   const schoolsEl = document.getElementById('home-schools');
   schoolsEl.innerHTML = state.schools.length
-    ? state.schools.map(s=>{
-        const checked = CHECKLIST_ITEMS.filter(c=> s.checklist && s.checklist[c.key]).length;
-        const pct = Math.round((checked/CHECKLIST_ITEMS.length)*100);
+    ? state.schools.map(raw=>{
+        const s = migrateSchool(raw);
+        const pct = schoolCompletionPct(s);
         const d = daysUntil(s.deadline);
         return `<div class="home-school-row">
           <span>${escapeHtml(s.name)}</span>
@@ -816,10 +876,18 @@ function renderWeekly(){
   const later = items.filter(i=> daysUntil(i.date) > 7 && daysUntil(i.date) <=21);
 
   let html = '';
+  const priActions = priorityActions();
+  if(priActions.length){
+    html += `<div class="week-group"><h3>Focus this week</h3>${priActions.slice(0,6).map(a=>`
+      <div class="task-row">
+        <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${a.urgency==='behind'?'now':'soon'}</span>
+        <div class="task-body"><div class="task-title">${escapeHtml(a.text)}</div></div>
+      </div>`).join('')}</div>`;
+  }
   html += renderGroup('Overdue', overdue, true);
   html += renderGroup('Due this week', thisWeek, false);
   html += renderGroup('Coming up (next 3 weeks)', later, false);
-  if(!overdue.length && !thisWeek.length && !later.length){
+  if(!overdue.length && !thisWeek.length && !later.length && !priActions.length){
     html += `<div class="empty">Nothing due in the next few weeks. Add a school or deadline to get started.</div>`;
   }
   el.innerHTML = html;
@@ -952,24 +1020,122 @@ function renderTotal(){
 function setFilter(c){ activeFilter = c; renderTotal(); }
 
 /* =========================================================
-   SCHOOLS VIEW
+   SCHOOLS VIEW — staged progress + pacing engine
    ========================================================= */
-const CHECKLIST_ITEMS = [
-  {key:'application', label:'Application submitted'},
-  {key:'essays', label:'Essays / supplements done'},
-  {key:'testscores', label:'Test scores sent'},
-  {key:'recs', label:'Rec letters submitted'},
-  {key:'transcript', label:'Transcript requested'},
-];
+const STAGE_SETS = {
+  application: ['Not started','In progress','Submitted'],
+  essays: ['Not started','Drafting','Revising','Final'],
+  testscores: ['N/A','Scheduled','Taken','Sent'],
+  transcript: ['Not requested','Requested','Sent'],
+};
+const ITEM_LABELS = { application:'Application', essays:'Essays / supplements', testscores:'Test scores', transcript:'Transcript' };
+/* Recommended-by timing: "reach this stage by N days before the deadline".
+   Used to proactively flag things before they're actually late. */
+const ITEM_TIMING = {
+  application: [{days:30, stage:1},{days:5, stage:2}],
+  essays:      [{days:35, stage:1},{days:21, stage:2},{days:7, stage:3}],
+  testscores:  [{days:60, stage:1},{days:30, stage:2},{days:14, stage:3}],
+  transcript:  [{days:21, stage:1},{days:7, stage:2}],
+};
+const REC_STAGES = ['Not asked','Asked','Follow-up sent','Received'];
+const REC_ASK_BY_DAYS = 42;      // ask ~6 weeks before deadline
+const REC_FOLLOWUP_AFTER_DAYS = 14; // nudge follow-up after 2 weeks of silence
+
+/* Older saved schools may only have the flat boolean `checklist` —
+   upgrade them in place the first time they're touched. */
+function migrateSchool(s){
+  if(!s.items){
+    s.items = { application:{stage:0}, essays:{stage:0}, testscores:{stage:0}, transcript:{stage:0} };
+    if(s.checklist){
+      if(s.checklist.application) s.items.application.stage = 2;
+      if(s.checklist.essays) s.items.essays.stage = 3;
+      if(s.checklist.testscores) s.items.testscores.stage = 3;
+      if(s.checklist.transcript) s.items.transcript.stage = 2;
+    }
+  }
+  if(!s.customItems) s.customItems = [];
+  if(!s.recLetters) s.recLetters = [];
+  return s;
+}
+
+function itemPacing(deadline, key, currentStage){
+  const stages = STAGE_SETS[key];
+  if(currentStage >= stages.length-1) return { status:'done' };
+  const d = daysUntil(deadline);
+  const timing = ITEM_TIMING[key];
+  let target = 0;
+  timing.forEach(t=>{ if(d <= t.days) target = Math.max(target, t.stage); });
+  if(currentStage < target) return { status:'behind', nextStage: currentStage+1 };
+  const next = timing.find(t=> t.stage === currentStage+1);
+  if(next && d > next.days && d <= next.days+7) return { status:'upcoming', nextStage: currentStage+1 };
+  return { status:'ontrack' };
+}
+
+function schoolCompletionPct(s){
+  migrateSchool(s);
+  const keys = Object.keys(STAGE_SETS);
+  let total = keys.length + s.customItems.length;
+  let done = 0;
+  keys.forEach(k=>{ if(s.items[k].stage >= STAGE_SETS[k].length-1) done++; });
+  s.customItems.forEach(ci=>{ if(ci.stage>=2) done++; });
+  return total ? Math.round((done/total)*100) : 0;
+}
+
+/* Builds the ranked list of specific next actions across every school —
+   this is what powers the Home dashboard, Weekly view, and the email. */
+function priorityActions(){
+  const actions = [];
+  state.schools.forEach(raw=>{
+    const s = migrateSchool(raw);
+    if(s.submitted) return;
+    const d = daysUntil(s.deadline);
+
+    Object.keys(STAGE_SETS).forEach(key=>{
+      const stages = STAGE_SETS[key];
+      const cur = s.items[key].stage;
+      const p = itemPacing(s.deadline, key, cur);
+      if(p.status==='behind' || p.status==='upcoming'){
+        const nextLabel = stages[p.nextStage];
+        actions.push({
+          urgency: p.status,
+          days: d,
+          text: p.status==='behind'
+            ? `${s.name}: ${ITEM_LABELS[key]} — aim to reach "${nextLabel}" now`
+            : `${s.name}: ${ITEM_LABELS[key]} — start moving toward "${nextLabel}" soon`
+        });
+      }
+    });
+
+    s.customItems.forEach(ci=>{
+      if(ci.stage>=2) return;
+      if(d<=14) actions.push({ urgency:'behind', days:d, text:`${s.name}: ${ci.label} — deadline is close, get this started` });
+      else if(d<=30) actions.push({ urgency:'upcoming', days:d, text:`${s.name}: ${ci.label} — worth starting soon` });
+    });
+
+    s.recLetters.forEach(rec=>{
+      if(rec.stage==='received') return;
+      if(rec.stage==='not_asked'){
+        if(d<=REC_ASK_BY_DAYS) actions.push({ urgency:'behind', days:d, text:`${s.name}: Ask ${rec.name} for a rec letter — recommended by now` });
+        else if(d<=REC_ASK_BY_DAYS+14) actions.push({ urgency:'upcoming', days:d, text:`${s.name}: Plan to ask ${rec.name} for a rec letter soon` });
+      } else if(rec.stage==='asked' && rec.askedDate){
+        const since = Math.floor((new Date() - new Date(rec.askedDate+'T00:00:00')) / 86400000);
+        if(since >= REC_FOLLOWUP_AFTER_DAYS) actions.push({ urgency:'behind', days:d, text:`${s.name}: Follow up with ${rec.name} about the rec letter — it's been ${since} days` });
+      }
+    });
+  });
+  actions.sort((a,b)=> a.urgency===b.urgency ? a.days-b.days : (a.urgency==='behind'?-1:1));
+  return actions;
+}
+
 function renderSchools(){
   const el = document.getElementById('schools-content');
   if(!state.schools.length){
     el.innerHTML = `<div class="empty">No schools added yet. Click "Add school" to start &mdash; I can look up real deadlines for you.</div>`;
     return;
   }
-  el.innerHTML = state.schools.map(s=>{
-    const checked = CHECKLIST_ITEMS.filter(c=> s.checklist && s.checklist[c.key]).length;
-    const pct = Math.round((checked/CHECKLIST_ITEMS.length)*100);
+  el.innerHTML = state.schools.map(raw=>{
+    const s = migrateSchool(raw);
+    const pct = schoolCompletionPct(s);
     const d = daysUntil(s.deadline);
     return `
     <div class="card school-card">
@@ -984,34 +1150,131 @@ function renderSchools(){
         </div>
       </div>
       ${s.notes? `<p style="font-size:12.5px; color:var(--text-dim); margin-top:10px;">${escapeHtml(s.notes)}</p>` : ''}
+      ${s.sourceUrl? `<div class="lookup-source" style="margin-top:6px;"><a href="${escapeHtml(s.sourceUrl)}" target="_blank" rel="noopener">Check the source &rarr;</a></div>` : ''}
       <div class="progress-wrap">
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
         <div class="progress-label">${pct}% complete</div>
       </div>
-      <div class="checklist">
-        ${CHECKLIST_ITEMS.map(c=>`
-          <label class="${s.checklist && s.checklist[c.key] ? 'checked':''}">
-            <input type="checkbox" ${s.checklist && s.checklist[c.key]?'checked':''} onchange="toggleChecklist('${s.id}','${c.key}')">
-            ${c.label}
-          </label>`).join('')}
+
+      <div class="item-list">
+        ${Object.keys(STAGE_SETS).map(key=>{
+          const stages = STAGE_SETS[key];
+          const cur = s.items[key].stage;
+          const p = itemPacing(s.deadline, key, cur);
+          return `
+          <div class="item-row">
+            <span class="item-label">${ITEM_LABELS[key]}</span>
+            <select onchange="updateItemStage('${s.id}','${key}', this.selectedIndex)">
+              ${stages.map((label,i)=>`<option value="${i}" ${i===cur?'selected':''}>${label}</option>`).join('')}
+            </select>
+            ${p.status==='behind'? `<span class="pacing-badge behind">behind</span>` : ''}
+            ${p.status==='upcoming'? `<span class="pacing-badge upcoming">upcoming</span>` : ''}
+            ${p.status==='ontrack'? `<span class="pacing-badge ontrack">on track</span>` : ''}
+            ${p.status==='done'? `<span class="pacing-badge done">done</span>` : ''}
+          </div>`;
+        }).join('')}
+
+        ${s.customItems.map(ci=>`
+          <div class="item-row">
+            <span class="item-label">${escapeHtml(ci.label)}</span>
+            <select onchange="updateCustomItemStage('${s.id}','${ci.id}', this.selectedIndex)">
+              ${['Not started','In progress','Done'].map((label,i)=>`<option value="${i}" ${i===ci.stage?'selected':''}>${label}</option>`).join('')}
+            </select>
+            <button class="icon-btn" title="Remove" onclick="deleteCustomItem('${s.id}','${ci.id}')">&times;</button>
+          </div>`).join('')}
+      </div>
+
+      <button class="btn secondary small" style="margin-top:10px;" onclick="openCustomItemModal('${s.id}')">+ Add custom item</button>
+
+      <div class="rec-letters">
+        <div class="rec-letters-head">Rec letters</div>
+        ${s.recLetters.length ? s.recLetters.map(rec=>`
+          <div class="item-row">
+            <span class="item-label">${escapeHtml(rec.name)}</span>
+            <select onchange="updateRecStage('${s.id}','${rec.id}', this.value)">
+              ${[['not_asked','Not asked'],['asked','Asked'],['followup','Follow-up sent'],['received','Received']].map(([val,label])=>`<option value="${val}" ${val===rec.stage?'selected':''}>${label}</option>`).join('')}
+            </select>
+            <button class="icon-btn" title="Remove" onclick="deleteRecLetter('${s.id}','${rec.id}')">&times;</button>
+          </div>`).join('') : `<div class="empty" style="padding:14px;">No recommenders added yet.</div>`}
+        <button class="btn secondary small" style="margin-top:8px;" onclick="openRecLetterModal('${s.id}')">+ Add recommender</button>
       </div>
     </div>`;
   }).join('');
 }
-function toggleChecklist(schoolId, key){
-  const s = state.schools.find(s=>s.id===schoolId);
+
+function updateItemStage(schoolId, key, stageIndex){
+  const s = migrateSchool(state.schools.find(s=>s.id===schoolId));
   if(!s) return;
-  s.checklist = s.checklist || {};
-  s.checklist[key] = !s.checklist[key];
-  saveData();
-  renderSchools();
+  s.items[key].stage = stageIndex;
+  saveData(); renderSchools(); renderHome(); renderWeekly();
 }
+function updateCustomItemStage(schoolId, itemId, stageIndex){
+  const s = migrateSchool(state.schools.find(s=>s.id===schoolId));
+  if(!s) return;
+  const ci = s.customItems.find(c=>c.id===itemId);
+  if(ci){ ci.stage = stageIndex; }
+  saveData(); renderSchools(); renderHome(); renderWeekly();
+}
+function deleteCustomItem(schoolId, itemId){
+  const s = migrateSchool(state.schools.find(s=>s.id===schoolId));
+  if(!s) return;
+  s.customItems = s.customItems.filter(c=>c.id!==itemId);
+  saveData(); renderSchools(); renderHome(); renderWeekly();
+}
+function updateRecStage(schoolId, recId, stage){
+  const s = migrateSchool(state.schools.find(s=>s.id===schoolId));
+  if(!s) return;
+  const rec = s.recLetters.find(r=>r.id===recId);
+  if(rec){
+    rec.stage = stage;
+    if(stage==='asked' && !rec.askedDate) rec.askedDate = new Date().toISOString().slice(0,10);
+  }
+  saveData(); renderSchools(); renderHome(); renderWeekly();
+}
+function deleteRecLetter(schoolId, recId){
+  const s = migrateSchool(state.schools.find(s=>s.id===schoolId));
+  if(!s) return;
+  s.recLetters = s.recLetters.filter(r=>r.id!==recId);
+  saveData(); renderSchools(); renderHome(); renderWeekly();
+}
+
+let activeCustomItemSchoolId = null;
+function openCustomItemModal(schoolId){
+  activeCustomItemSchoolId = schoolId;
+  document.getElementById('custom-item-label').value='';
+  document.getElementById('custom-item-modal-bg').classList.add('active');
+}
+function saveCustomItem(){
+  const label = document.getElementById('custom-item-label').value.trim();
+  if(!label){ alert('Give this item a name.'); return; }
+  const s = migrateSchool(state.schools.find(s=>s.id===activeCustomItemSchoolId));
+  if(s){ s.customItems.push({ id: uid(), label, stage:0 }); saveData(); }
+  closeModal('custom-item-modal-bg');
+  renderSchools(); renderHome(); renderWeekly();
+}
+
+let activeRecLetterSchoolId = null;
+function openRecLetterModal(schoolId){
+  activeRecLetterSchoolId = schoolId;
+  document.getElementById('rec-letter-name').value='';
+  document.getElementById('rec-letter-modal-bg').classList.add('active');
+}
+function saveRecLetter(){
+  const name = document.getElementById('rec-letter-name').value.trim();
+  if(!name){ alert('Add a name.'); return; }
+  const s = migrateSchool(state.schools.find(s=>s.id===activeRecLetterSchoolId));
+  if(s){ s.recLetters.push({ id: uid(), name, stage:'not_asked', askedDate:null }); saveData(); }
+  closeModal('rec-letter-modal-bg');
+  renderSchools(); renderHome(); renderWeekly();
+}
+
 function deleteSchool(id){
   if(!confirm('Remove this school and its checklist?')) return;
   state.schools = state.schools.filter(s=>s.id!==id);
   saveData(); renderSchools(); renderWeekly(); renderTotal(); renderMonthly(); renderHome();
 }
 let editingSchoolId = null;
+let lookupSourceUrl = null;
 function openSchoolModal(school){
   editingSchoolId = school ? school.id : null;
   document.getElementById('school-modal-title').textContent = school ? 'Edit school' : 'Add a school';
@@ -1020,6 +1283,11 @@ function openSchoolModal(school){
   document.getElementById('school-deadline').value = school ? school.deadline : '';
   document.getElementById('school-notes').value = school ? school.notes : '';
   document.getElementById('school-lookup-status').textContent='';
+  lookupSourceUrl = (school && school.sourceUrl) ? school.sourceUrl : null;
+  const sourceEl = document.getElementById('school-lookup-source');
+  sourceEl.innerHTML = lookupSourceUrl
+    ? `<a href="${escapeHtml(lookupSourceUrl)}" target="_blank" rel="noopener">Check the source \u2192</a>`
+    : '';
   document.getElementById('school-modal-bg').classList.add('active');
 }
 function saveSchool(){
@@ -1030,9 +1298,11 @@ function saveSchool(){
   if(!name || !deadline){ alert('Add at least a school name and deadline.'); return; }
   if(editingSchoolId){
     const s = state.schools.find(s=>s.id===editingSchoolId);
-    if(s){ s.name=name; s.type=type; s.deadline=deadline; s.notes=notes; }
+    if(s){ s.name=name; s.type=type; s.deadline=deadline; s.notes=notes; s.sourceUrl=lookupSourceUrl||s.sourceUrl||null; }
   } else {
-    state.schools.push({ id: uid(), name, type, deadline, notes, checklist:{}, submitted:false });
+    state.schools.push({ id: uid(), name, type, deadline, notes, submitted:false, sourceUrl: lookupSourceUrl||null,
+      items: { application:{stage:0}, essays:{stage:0}, testscores:{stage:0}, transcript:{stage:0} },
+      customItems: [], recLetters: [] });
   }
   saveData();
   closeModal('school-modal-bg');
@@ -1043,12 +1313,14 @@ function saveSchool(){
 async function lookupSchool(){
   const name = document.getElementById('school-name').value.trim();
   const statusEl = document.getElementById('school-lookup-status');
-  if(!name){ statusEl.textContent = 'Type a school name first.'; statusEl.className='lookup-status error'; return; }
+  const sourceEl = document.getElementById('school-lookup-source');
+  if(!name){ statusEl.textContent = 'Type a school name first.'; statusEl.className='lookup-status error'; sourceEl.innerHTML=''; return; }
   statusEl.textContent = 'Looking up deadlines and requirements…';
   statusEl.className = 'lookup-status loading';
+  sourceEl.innerHTML = '';
   try{
-    const prompt = `Look up current, accurate undergraduate application information for "${name}". I need: 1) the Early Action or Early Decision deadline if offered, 2) the Regular Decision deadline, 3) whether they are test-optional/test-blind/test-required, 4) a short list of required supplemental essays if any. Respond ONLY as compact JSON with keys: ea_deadline, ed_deadline, rd_deadline (use YYYY-MM-DD or null), test_policy, supplements (short string), summary (one sentence). No markdown, no commentary, just the JSON object.`;
-    const result = await callClaude(prompt, 'You are a factual research assistant helping a family look up publicly available college application deadlines and requirements. Only report verifiable factual information. Never write, draft, or suggest essay content.', true);
+    const prompt = `Look up current, accurate undergraduate application information for "${name}". I need: 1) the Early Action or Early Decision deadline if offered, 2) the Regular Decision deadline, 3) whether they are test-optional/test-blind/test-required, 4) a short list of required supplemental essays if any, 5) the single best URL (the school's own admissions page, ideally) where this was confirmed. Respond ONLY as compact JSON with keys: ea_deadline, ed_deadline, rd_deadline (use YYYY-MM-DD or null), test_policy, supplements (short string), summary (one sentence), source_url. No markdown, no commentary, just the JSON object.`;
+    const result = await callClaude(prompt, 'You are a factual research assistant helping a family look up publicly available college application deadlines and requirements. Only report verifiable factual information, and always include the URL you found it on. Never write, draft, or suggest essay content.', true);
     let data;
     try{ data = JSON.parse(result.replace(/```json|```/g,'').trim()); }
     catch(e){ throw new Error('Could not parse response'); }
@@ -1067,8 +1339,15 @@ async function lookupSchool(){
     if(data.summary) notesParts.push(data.summary);
     document.getElementById('school-notes').value = notesParts.join(' · ');
 
-    statusEl.textContent = 'Found it — double-check against the school\'s own site before finalizing.';
+    statusEl.textContent = 'Found it — double-check against the source below before finalizing.';
     statusEl.className = 'lookup-status success';
+
+    if(data.source_url){
+      lookupSourceUrl = data.source_url;
+      sourceEl.innerHTML = `<a href="${escapeHtml(data.source_url)}" target="_blank" rel="noopener">Check the source \u2192</a>`;
+    } else {
+      lookupSourceUrl = null;
+    }
   } catch(err){
     statusEl.textContent = 'Couldn\'t look that up automatically (check Settings for API setup). You can enter details manually.';
     statusEl.className = 'lookup-status error';
@@ -1395,8 +1674,15 @@ function loadSettingsIntoInputs(){
    (via a direct EmailJS API call, not this function) once configured. */
 async function sendWeeklyEmail(){
   if(!config.emailjs || !config.emailjs.service) return { ok:false, reason:'EmailJS not configured' };
+  const priActions = priorityActions();
+  const actionsBlock = priActions.length
+    ? 'Focus this week:\n' + priActions.slice(0,6).map(a=> `- ${a.text}`).join('\n')
+    : 'Focus this week: nothing urgent — good pace.';
   const items = allItems().filter(i=>!i.done && daysUntil(i.date) >=0 && daysUntil(i.date) <=7);
-  const summary = items.map(i=> `${fmtDate(i.date)} — ${i.title} (${catLabel[i.category]||i.category})`).join('\n') || 'Nothing due this week.';
+  const deadlinesBlock = items.length
+    ? 'Deadlines this week:\n' + items.map(i=> `- ${fmtDate(i.date)} — ${i.title} (${catLabel[i.category]||i.category})`).join('\n')
+    : 'Deadlines this week: nothing due.';
+  const summary = `${actionsBlock}\n\n${deadlinesBlock}`;
   const recipients = (config.emailjs.recipients||'').split(',').map(s=>s.trim()).filter(Boolean);
   if(!recipients.length) return { ok:false, reason:'No recipients set' };
   let sent = 0, failed = 0;
