@@ -1489,11 +1489,18 @@ async function getSuggestions(){
   const resultsEl = document.getElementById('discovery-results');
   resultsEl.innerHTML = `<div class="lookup-status loading">Researching some starting points…</div>`;
   try{
-    const prompt = `A high school senior has these preferences for college: location=${discoveryAnswers.location}, campus size=${discoveryAnswers.size}, setting=${discoveryAnswers.setting}, major clarity=${discoveryAnswers.major}, priority=${discoveryAnswers.vibe}. Suggest 5 real, currently-existing US colleges/universities that plausibly fit this profile, spanning a mix of selectivity (at least one reach, some match/likely). Respond ONLY as JSON array of objects with keys: name, location, why_it_fits (one sentence), selectivity (Reach/Match/Likely). No markdown, no extra text.`;
-    const result = await callClaude(prompt, 'You are a factual college research assistant. Suggest only real, currently operating institutions. These are starting points for further research, not final recommendations. Never write essay content.', true);
+    const prompt = `A high school senior has these preferences for college: location=${discoveryAnswers.location}, campus size=${discoveryAnswers.size}, setting=${discoveryAnswers.setting}, major clarity=${discoveryAnswers.major}, priority=${discoveryAnswers.vibe}. Suggest 5 real, currently-existing US colleges/universities that plausibly fit this profile, spanning a mix of selectivity (at least one reach, some match/likely). Respond ONLY as a JSON array of objects with keys: name, location, why_it_fits, selectivity — use short plain strings for every field, no markdown formatting. Output nothing except the JSON array itself.`;
+    const result = await callClaude(prompt, 'You are a factual college research assistant. Suggest only real, currently operating institutions. These are starting points for further research, not final recommendations. Never write essay content. Always respond with only a raw JSON array, no commentary before or after it.', true);
+
     let list;
-    try{ list = JSON.parse(result.replace(/```json|```/g,'').trim()); }
-    catch(e){ throw new Error('parse fail'); }
+    try{
+      list = JSON.parse(result.replace(/```json|```/g,'').trim());
+    } catch(e){
+      const match = result.match(/\[[\s\S]*\]/);
+      if(match){ list = JSON.parse(match[0]); }
+      else { console.error('Find Schools: could not find JSON in response:', result); throw new Error('No JSON array found in response'); }
+    }
+    if(!Array.isArray(list) || !list.length) throw new Error('Response parsed but contained no schools');
 
     resultsEl.innerHTML = `
       <div class="stack">
@@ -1507,7 +1514,8 @@ async function getSuggestions(){
       <div class="disclaimer">These are AI-assisted starting points based on your answers, not a verified or ranked list. Always research each school's actual website, cost, and fit before adding it to your list.</div>
     `;
   } catch(err){
-    resultsEl.innerHTML = `<div class="lookup-status error">Couldn't fetch suggestions (check Settings for API setup). Try browsing a site like the College Board's BigFuture in the meantime.</div>`;
+    console.error('Find Schools lookup failed:', err);
+    resultsEl.innerHTML = `<div class="lookup-status error">Couldn't fetch suggestions (${escapeHtml(err.message||'unknown error')}). Check Settings for API setup, or try browsing a site like the College Board's BigFuture in the meantime.</div>`;
   }
 }
 
@@ -1855,11 +1863,11 @@ async function getApiKey(){
   return doc.data().apiKey;
 }
 
-async function callClaude(userPrompt, systemPrompt, useSearch){
+async function callClaudeOnce(userPrompt, systemPrompt, useSearch, maxTokens){
   const apiKey = await getApiKey();
   const body = {
     model: 'claude-sonnet-5',
-    max_tokens: 2048,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages: [{ role:'user', content: userPrompt }],
   };
@@ -1878,9 +1886,27 @@ async function callClaude(userPrompt, systemPrompt, useSearch){
   });
   if(!res.ok) throw new Error('API error: '+res.status);
   const data = await res.json();
-  const textBlock = (data.content||[]).find(b=>b.type==='text');
-  if(!textBlock) throw new Error('No text in response');
-  return textBlock.text;
+  const textBlocks = (data.content||[]).filter(b=>b.type==='text');
+  if(!textBlocks.length){
+    const truncated = data.stop_reason === 'max_tokens';
+    throw new Error(truncated ? 'Response cut off before finishing (out of room)' : 'No text in response');
+  }
+  return textBlocks.map(b=>b.text).join('\n');
+}
+
+/* Web-search lookups sometimes spend their whole token budget on the
+   search step itself and leave no room for the final answer. Give a
+   generous budget, and if it still comes back empty, retry once with
+   an even bigger one before giving up. */
+async function callClaude(userPrompt, systemPrompt, useSearch){
+  try{
+    return await callClaudeOnce(userPrompt, systemPrompt, useSearch, 4096);
+  } catch(err){
+    if(useSearch && /No text in response|cut off/.test(err.message)){
+      return await callClaudeOnce(userPrompt, systemPrompt, useSearch, 6144);
+    }
+    throw err;
+  }
 }
 
 function saveEmailConfig(){
