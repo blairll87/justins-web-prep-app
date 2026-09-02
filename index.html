@@ -1435,11 +1435,18 @@ async function lookupSchool(){
    DISCOVERY VIEW — questionnaire + AI-assisted suggestions
    ========================================================= */
 const DISCOVERY_QUESTIONS = [
-  { key:'location', q:'Where do you want to be?', opts:['Close to home','Same state, but away','Anywhere in the US','Open to anywhere'] },
+  { key:'homeLocation', q:'What city and state does he call home?', type:'text', placeholder:'e.g. Los Angeles, CA', optional:true, hint:'This makes "close to home" actually mean something to the search.' },
+  { key:'location', q:'How far from home is he open to?', opts:['Close to home','Same state, but away','Anywhere in the US','Open to anywhere'] },
+  { key:'pathType', q:'What kind of path is he considering?', opts:['Four-year university','Community college, then transfer','Trade / vocational program','Not sure yet'] },
+  { key:'field', q:'Any field of interest?', opts:['STEM','Business','Arts & Humanities','Health Sciences','Social Sciences & Education','Undecided, open to anything'] },
+  { key:'energizer', q:'Even if undecided on a major — what kind of work energizes him?', opts:['Building/making things','Helping people directly','Creative expression','Solving problems & data','Hands-on / outdoor work','Not sure yet'] },
+  { key:'academics', q:'Roughly how would you describe his academic profile? (used only to make Reach/Match/Likely accurate)', opts:['Strong — mostly A\'s, upper-range scores','Solid — mix of A\'s/B\'s, mid-range scores','Developing — working to raise stats','Prefer not to say'] },
   { key:'size', q:'What size campus sounds right?', opts:['Small (under 5,000)','Medium (5,000-15,000)','Large (15,000+)','Not sure'] },
   { key:'setting', q:'What setting?', opts:['Big city','College town','Suburban','Rural / quiet'] },
-  { key:'major', q:'Do you have a major in mind?', opts:['Yes, pretty set on one','A general direction','Undecided','Want lots of options to explore'] },
-  { key:'vibe', q:'What matters most in day-to-day life there?', opts:['Strong sports/school spirit','Tight-knit community','Research/academic intensity','Diversity of people & ideas'] },
+  { key:'pace', q:'Class size and pace?', opts:['Big lecture classes are fine','Prefer smaller classes, more individual attention','Not sure yet'] },
+  { key:'social', q:'Social scene?', opts:['Big Greek life & school spirit','Low-key, not a big party scene','Politically & socially active','No strong preference'] },
+  { key:'climate', q:'Climate preference?', opts:['Warm year-round','Real four seasons','Doesn\'t matter'] },
+  { key:'community', q:'Any specific community or support resource that matters? (first-gen support, cultural/religious life, LGBTQ+ resources, etc.)', type:'text', placeholder:'Leave blank if none in particular', optional:true },
 ];
 let discoveryAnswers = {};
 let discoveryStep = 0;
@@ -1451,6 +1458,22 @@ function renderDiscovery(){
     return;
   }
   const q = DISCOVERY_QUESTIONS[discoveryStep];
+  const canContinue = q.optional || !!discoveryAnswers[q.key];
+
+  if(q.type==='text'){
+    el.innerHTML = `
+      <div class="step-dots">${DISCOVERY_QUESTIONS.map((_,i)=>`<span class="${i===discoveryStep?'active':''}"></span>`).join('')}</div>
+      <h3 style="font-size:16px; margin-bottom:6px;">${q.q}</h3>
+      ${q.hint? `<p style="font-size:12.5px; color:var(--text-faint); margin-bottom:14px;">${q.hint}</p>` : '<div style="height:14px;"></div>'}
+      <input id="discovery-text-input" type="text" value="${escapeHtml(discoveryAnswers[q.key]||'')}" placeholder="${escapeHtml(q.placeholder||'')}"
+        style="width:100%; background:var(--bg-card); border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; font-family:inherit;">
+      <div class="modal-actions" style="margin-top:20px;">
+        ${discoveryStep>0? `<button class="btn secondary" onclick="discoveryStep--; renderDiscovery();">Back</button>` : '<div></div>'}
+        <button class="btn" onclick="answerDiscoveryText('${q.key}')">${q.optional? 'Continue':'Continue'}</button>
+      </div>`;
+    return;
+  }
+
   el.innerHTML = `
     <div class="step-dots">${DISCOVERY_QUESTIONS.map((_,i)=>`<span class="${i===discoveryStep?'active':''}"></span>`).join('')}</div>
     <h3 style="font-size:16px; margin-bottom:14px;">${q.q}</h3>
@@ -1459,15 +1482,22 @@ function renderDiscovery(){
     </div>
     <div class="modal-actions" style="margin-top:20px;">
       ${discoveryStep>0? `<button class="btn secondary" onclick="discoveryStep--; renderDiscovery();">Back</button>` : '<div></div>'}
-      <button class="btn" onclick="nextDiscovery()" ${discoveryAnswers[q.key]?'':'disabled style="opacity:0.5;"'}>Continue</button>
+      <button class="btn" onclick="nextDiscovery()" ${canContinue?'':'disabled style="opacity:0.5;"'}>Continue</button>
     </div>`;
+}
+function answerDiscoveryText(key){
+  const val = document.getElementById('discovery-text-input').value.trim();
+  discoveryAnswers[key] = val;
+  discoveryStep++;
+  renderDiscovery();
 }
 function answerDiscovery(key, val){
   discoveryAnswers[key] = val;
   renderDiscovery();
 }
 function nextDiscovery(){
-  if(!discoveryAnswers[DISCOVERY_QUESTIONS[discoveryStep].key]) return;
+  const q = DISCOVERY_QUESTIONS[discoveryStep];
+  if(!q.optional && !discoveryAnswers[q.key]) return;
   discoveryStep++;
   renderDiscovery();
 }
@@ -1476,7 +1506,7 @@ async function renderDiscoveryResults(){
   el.innerHTML = `
     <h3 style="font-size:16px; margin-bottom:10px;">Your profile</h3>
     <div class="stack" style="margin-bottom:20px;">
-      ${DISCOVERY_QUESTIONS.map(q=>`<div style="font-size:13px; color:var(--text-dim);"><strong style="color:var(--text);">${q.q}</strong> — ${discoveryAnswers[q.key]}</div>`).join('')}
+      ${DISCOVERY_QUESTIONS.filter(q=>discoveryAnswers[q.key]).map(q=>`<div style="font-size:13px; color:var(--text-dim);"><strong style="color:var(--text);">${q.q}</strong> — ${escapeHtml(discoveryAnswers[q.key])}</div>`).join('')}
     </div>
     <button class="btn blue" onclick="getSuggestions()">Get starting-point suggestions</button>
     <button class="btn secondary" style="margin-left:8px;" onclick="restartDiscovery()">Start over</button>
@@ -1489,7 +1519,9 @@ async function getSuggestions(){
   const resultsEl = document.getElementById('discovery-results');
   resultsEl.innerHTML = `<div class="lookup-status loading">Researching some starting points…</div>`;
   try{
-    const prompt = `A high school senior has these preferences for college: location=${discoveryAnswers.location}, campus size=${discoveryAnswers.size}, setting=${discoveryAnswers.setting}, major clarity=${discoveryAnswers.major}, priority=${discoveryAnswers.vibe}. Suggest 5 real, currently-existing US colleges/universities that plausibly fit this profile, spanning a mix of selectivity (at least one reach, some match/likely). Respond ONLY as a JSON array of objects with keys: name, location, why_it_fits, selectivity — use short plain strings for every field, no markdown formatting. Output nothing except the JSON array itself.`;
+    const homeText = discoveryAnswers.homeLocation ? `He lives in ${discoveryAnswers.homeLocation}.` : `His home location wasn't given — don't assume a region for "close to home" answers.`;
+    const communityText = discoveryAnswers.community ? ` He'd also like schools known for: ${discoveryAnswers.community}.` : '';
+    const prompt = `A US high school senior is looking for college starting points. ${homeText} Preferences: distance from home=${discoveryAnswers.location}, path type=${discoveryAnswers.pathType}, field of interest=${discoveryAnswers.field}, what energizes him=${discoveryAnswers.energizer}, self-reported academic profile=${discoveryAnswers.academics||'not given'}, campus size=${discoveryAnswers.size}, setting=${discoveryAnswers.setting}, class size/pace=${discoveryAnswers.pace}, social scene=${discoveryAnswers.social}, climate=${discoveryAnswers.climate}.${communityText} Suggest 5 real, currently-existing US institutions that plausibly fit this whole profile — especially respect the distance-from-home preference using his actual home location, and use the academic profile (if given) to make the selectivity label realistic for him specifically, not generic. Span a mix of selectivity (at least one reach, some match/likely). Respond ONLY as a JSON array of objects with keys: name, location, why_it_fits, selectivity — use short plain strings for every field, no markdown formatting. Output nothing except the JSON array itself.`;
     const result = await callClaude(prompt, 'You are a factual college research assistant. Suggest only real, currently operating institutions. These are starting points for further research, not final recommendations. Never write essay content. Always respond with only a raw JSON array, no commentary before or after it.', true);
 
     let list;
