@@ -84,7 +84,7 @@ function itemPacing(deadline, key, currentStage) {
   return { status: 'ontrack' };
 }
 
-function priorityActions(schools) {
+function priorityActions(schools, gettingStarted) {
   const actions = [];
   (schools || []).forEach(s => {
     if (s.submitted) return;
@@ -124,7 +124,17 @@ function priorityActions(schools) {
       }
     });
   });
-  actions.sort((a, b) => a.urgency === b.urgency ? a.days - b.days : (a.urgency === 'behind' ? -1 : 1));
+
+  (gettingStarted || []).forEach(item => {
+    if (item.stage >= 2) return; // Done or Not needed
+    actions.push({ urgency: 'general', days: 0, text: item.label });
+  });
+
+  const URGENCY_RANK = { behind: 0, upcoming: 1, general: 2 };
+  actions.sort((a, b) => {
+    const r = URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency];
+    return r !== 0 ? r : (a.days || 0) - (b.days || 0);
+  });
   return actions;
 }
 
@@ -148,6 +158,7 @@ async function main() {
   const tasks = appData?.tasks || [];
   const schools = appData?.schools || [];
   const scholarships = appData?.scholarships || [];
+  const gettingStarted = appData?.gettingStarted || [];
 
   const items = [];
   for (const t of tasks) {
@@ -170,7 +181,7 @@ async function main() {
     .filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 7; })
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const priActions = priorityActions(schools);
+  const priActions = priorityActions(schools, gettingStarted);
   const actionsBlock = priActions.length
     ? 'Focus this week:\n' + priActions.slice(0, 6).map(a => `- ${a.text}`).join('\n')
     : 'Focus this week: nothing urgent — good pace.';
