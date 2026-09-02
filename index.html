@@ -277,6 +277,8 @@
   .pacing-badge.upcoming{ background:#3a2f0e; color: var(--amber); }
   .pacing-badge.ontrack{ background:#0e2f2a; color: var(--green); }
   .pacing-badge.done{ background: var(--bg-raised); color: var(--text-faint); }
+  .pacing-badge.general{ background: var(--blue-dim); color:#bcd2ff; }
+  .item-row-resolved{ opacity:0.45; }
   .rec-letters{ margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
   .rec-letters-head{ font-size:11px; color: var(--text-faint); font-weight:700; margin-bottom:8px; }
 
@@ -427,6 +429,14 @@
           <h3>Priority actions</h3>
         </div>
         <div id="home-priority" class="stack"></div>
+      </div>
+
+      <div class="card home-panel" id="home-getting-started-panel" style="margin-bottom:16px;">
+        <div class="home-panel-head">
+          <h3>Getting started</h3>
+        </div>
+        <div id="home-getting-started" class="item-list"></div>
+        <button class="btn secondary small" style="margin-top:10px;" onclick="openGettingStartedModal()">+ Add task</button>
       </div>
 
       <div class="home-grid">
@@ -685,6 +695,18 @@
   </div>
 </div>
 
+<!-- GETTING STARTED TASK MODAL -->
+<div class="modal-bg" id="getting-started-modal-bg">
+  <div class="modal">
+    <h2>Add a task</h2>
+    <div class="field"><label>What's the task?</label><input id="getting-started-label" placeholder="e.g. Look into summer program deadlines"></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeModal('getting-started-modal-bg')">Cancel</button>
+      <button class="btn" onclick="saveGettingStartedItem()">Add</button>
+    </div>
+  </div>
+</div>
+
 <!-- CUSTOM SCHOOL ITEM MODAL -->
 <div class="modal-bg" id="custom-item-modal-bg">
   <div class="modal">
@@ -768,6 +790,28 @@ function saveConfig(){ localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
 let state = loadData();
 state.scholarships = state.scholarships || [];
 let config = loadConfig();
+
+const GETTING_STARTED_STAGES = ['Not started','In progress','Done','Not needed'];
+const DEFAULT_GETTING_STARTED = [
+  'Narrow down your school list using Find Schools',
+  'Set up your Common App / Cal State Apply / UC application accounts',
+  'Start brainstorming personal statement topics (just ideas, no need to write yet)',
+  'Build out your Activities list with everything you\'ve done so far',
+  'Think about who you\'ll ask for recommendation letters',
+  'Request an unofficial transcript to review your course history',
+  'Browse the Find Scholarships tool for a first pass',
+  'Connect with your school counselor early — they help with transcripts and often write a counselor rec',
+  'Put together a resume/brag sheet to give recommenders when you ask',
+  'Set up a dedicated email folder/label for college-related emails',
+  'Decide on a testing plan — worth a retake? Register early if so',
+  'FAFSA opens October 1 — worth knowing the date, even before diving into details with Mom',
+];
+/* Seed once for anyone (new or existing) who doesn't have this list yet —
+   won't re-seed or override if they've already started using it. */
+if(state.gettingStarted === undefined){
+  state.gettingStarted = DEFAULT_GETTING_STARTED.map(label => ({ id: uid(), label, stage: 0 }));
+  saveData();
+}
 
 /* seed example schools on very first run so the app isn't blank.
    Deadlines below are real, verified for the Fall 2027 application cycle
@@ -869,9 +913,13 @@ const SPIDEY_QUOTES = [
   "The city doesn't get saved all at once. Neither does an application list.",
   "Miles didn't master it overnight either. Keep swinging.",
 ];
+function urgencyBadgeLabel(urgency){
+  return urgency==='behind' ? 'now' : urgency==='upcoming' ? 'soon' : 'start';
+}
 function renderHome(){
   document.getElementById('home-quote').textContent =
     SPIDEY_QUOTES[Math.floor(Math.random()*SPIDEY_QUOTES.length)];
+  renderGettingStarted();
 
   const items = allItems();
   const open = items.filter(i=>!i.done);
@@ -908,7 +956,7 @@ function renderHome(){
   document.getElementById('home-priority').innerHTML = priActions.length
     ? priActions.map(a=>`
         <div class="task-row">
-          <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${a.urgency==='behind'?'now':'soon'}</span>
+          <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${urgencyBadgeLabel(a.urgency)}</span>
           <div class="task-body"><div class="task-title">${escapeHtml(a.text)}</div></div>
         </div>`).join('')
     : `<div class="empty">Nothing urgent right now — nice pace.</div>`;
@@ -948,7 +996,7 @@ function renderWeekly(){
   if(priActions.length){
     html += `<div class="week-group"><h3>Focus this week</h3>${priActions.slice(0,6).map(a=>`
       <div class="task-row">
-        <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${a.urgency==='behind'?'now':'soon'}</span>
+        <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${urgencyBadgeLabel(a.urgency)}</span>
         <div class="task-body"><div class="task-title">${escapeHtml(a.text)}</div></div>
       </div>`).join('')}</div>`;
   }
@@ -1200,8 +1248,60 @@ function priorityActions(){
       }
     });
   });
-  actions.sort((a,b)=> a.urgency===b.urgency ? a.days-b.days : (a.urgency==='behind'?-1:1));
+
+  /* Getting Started tasks aren't tied to any deadline, so they sit in
+     their own lowest-priority tier — they fill the list precisely when
+     nothing else is urgent yet, which is exactly when they're useful. */
+  (state.gettingStarted||[]).forEach(item=>{
+    if(item.stage>=2) return; // Done or Not needed
+    actions.push({ urgency:'general', days:0, text: item.label });
+  });
+
+  const URGENCY_RANK = { behind:0, upcoming:1, general:2 };
+  actions.sort((a,b)=> {
+    const r = URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency];
+    return r!==0 ? r : (a.days||0)-(b.days||0);
+  });
   return actions;
+}
+
+/* =========================================================
+   GETTING STARTED — general early-phase checklist, not tied
+   to any specific deadline. Feeds into priorityActions() above.
+   ========================================================= */
+function renderGettingStarted(){
+  const el = document.getElementById('home-getting-started');
+  if(!el) return;
+  const items = state.gettingStarted||[];
+  el.innerHTML = items.length ? items.map(item=>`
+    <div class="item-row ${item.stage>=2?'item-row-resolved':''}">
+      <span class="item-label">${escapeHtml(item.label)}</span>
+      <select onchange="updateGettingStartedStage('${item.id}', this.selectedIndex)">
+        ${GETTING_STARTED_STAGES.map((label,i)=>`<option value="${i}" ${i===item.stage?'selected':''}>${label}</option>`).join('')}
+      </select>
+      <button class="icon-btn" title="Remove" onclick="deleteGettingStartedItem('${item.id}')">&times;</button>
+    </div>`).join('') : `<div class="empty">Nothing here — add a task to get started.</div>`;
+}
+function updateGettingStartedStage(id, stageIndex){
+  const item = (state.gettingStarted||[]).find(i=>i.id===id);
+  if(item){ item.stage = stageIndex; saveData(); renderGettingStarted(); renderHome(); renderWeekly(); }
+}
+function deleteGettingStartedItem(id){
+  state.gettingStarted = (state.gettingStarted||[]).filter(i=>i.id!==id);
+  saveData(); renderGettingStarted(); renderHome(); renderWeekly();
+}
+function openGettingStartedModal(){
+  document.getElementById('getting-started-label').value = '';
+  document.getElementById('getting-started-modal-bg').classList.add('active');
+}
+function saveGettingStartedItem(){
+  const label = document.getElementById('getting-started-label').value.trim();
+  if(!label){ alert('Add a task description.'); return; }
+  state.gettingStarted = state.gettingStarted || [];
+  state.gettingStarted.push({ id: uid(), label, stage:0 });
+  saveData();
+  closeModal('getting-started-modal-bg');
+  renderGettingStarted(); renderHome(); renderWeekly();
 }
 
 function renderSchools(){
@@ -1227,7 +1327,7 @@ function renderSchools(){
         </div>
       </div>
       ${s.notes? `<p style="font-size:12.5px; color:var(--text-dim); margin-top:10px;">${escapeHtml(s.notes)}</p>` : ''}
-      ${s.sourceUrl? `<div class="lookup-source" style="margin-top:6px;"><a href="${escapeHtml(s.sourceUrl)}" target="_blank" rel="noopener">Check the source &rarr;</a></div>` : ''}
+      ${s.sourceUrl? `<div class="lookup-source" style="margin-top:6px;"><a href="${escapeHtml(s.sourceUrl)}" target="_blank" rel="noopener">Explore school &rarr;</a></div>` : ''}
       <div class="progress-wrap">
         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
         <div class="progress-label">${pct}% complete</div>
@@ -1255,7 +1355,7 @@ function renderSchools(){
           <div class="item-row">
             <span class="item-label">${escapeHtml(ci.label)}</span>
             <select onchange="updateCustomItemStage('${s.id}','${ci.id}', this.selectedIndex)">
-              ${['Not started','In progress','Done'].map((label,i)=>`<option value="${i}" ${i===ci.stage?'selected':''}>${label}</option>`).join('')}
+              ${['Not started','In progress','Done','Not needed'].map((label,i)=>`<option value="${i}" ${i===ci.stage?'selected':''}>${label}</option>`).join('')}
             </select>
             <button class="icon-btn" title="Remove" onclick="deleteCustomItem('${s.id}','${ci.id}')">&times;</button>
           </div>`).join('')}
@@ -1363,7 +1463,7 @@ function openSchoolModal(school){
   lookupSourceUrl = (school && school.sourceUrl) ? school.sourceUrl : null;
   const sourceEl = document.getElementById('school-lookup-source');
   sourceEl.innerHTML = lookupSourceUrl
-    ? `<a href="${escapeHtml(lookupSourceUrl)}" target="_blank" rel="noopener">Check the source \u2192</a>`
+    ? `<a href="${escapeHtml(lookupSourceUrl)}" target="_blank" rel="noopener">Explore school \u2192</a>`
     : '';
   document.getElementById('school-modal-bg').classList.add('active');
 }
@@ -1421,7 +1521,7 @@ async function lookupSchool(){
 
     if(data.source_url){
       lookupSourceUrl = data.source_url;
-      sourceEl.innerHTML = `<a href="${escapeHtml(data.source_url)}" target="_blank" rel="noopener">Check the source \u2192</a>`;
+      sourceEl.innerHTML = `<a href="${escapeHtml(data.source_url)}" target="_blank" rel="noopener">Explore school \u2192</a>`;
     } else {
       lookupSourceUrl = null;
     }
@@ -1521,8 +1621,8 @@ async function getSuggestions(){
   try{
     const homeText = discoveryAnswers.homeLocation ? `He lives in ${discoveryAnswers.homeLocation}.` : `His home location wasn't given — don't assume a region for "close to home" answers.`;
     const communityText = discoveryAnswers.community ? ` He'd also like schools known for: ${discoveryAnswers.community}.` : '';
-    const prompt = `A US high school senior is looking for college starting points. ${homeText} Preferences: distance from home=${discoveryAnswers.location}, path type=${discoveryAnswers.pathType}, field of interest=${discoveryAnswers.field}, what energizes him=${discoveryAnswers.energizer}, self-reported academic profile=${discoveryAnswers.academics||'not given'}, campus size=${discoveryAnswers.size}, setting=${discoveryAnswers.setting}, class size/pace=${discoveryAnswers.pace}, social scene=${discoveryAnswers.social}, climate=${discoveryAnswers.climate}.${communityText} Suggest 5 real, currently-existing US institutions that plausibly fit this whole profile — especially respect the distance-from-home preference using his actual home location, and use the academic profile (if given) to make the selectivity label realistic for him specifically, not generic. Span a mix of selectivity (at least one reach, some match/likely). Respond ONLY as a JSON array of objects with keys: name, location, why_it_fits, selectivity — use short plain strings for every field, no markdown formatting. Output nothing except the JSON array itself.`;
-    const result = await callClaude(prompt, 'You are a factual college research assistant. Suggest only real, currently operating institutions. These are starting points for further research, not final recommendations. Never write essay content. Always respond with only a raw JSON array, no commentary before or after it.', true);
+    const prompt = `A US high school senior is looking for college starting points. ${homeText} Preferences: distance from home=${discoveryAnswers.location}, path type=${discoveryAnswers.pathType}, field of interest=${discoveryAnswers.field}, what energizes him=${discoveryAnswers.energizer}, self-reported academic profile=${discoveryAnswers.academics||'not given'}, campus size=${discoveryAnswers.size}, setting=${discoveryAnswers.setting}, class size/pace=${discoveryAnswers.pace}, social scene=${discoveryAnswers.social}, climate=${discoveryAnswers.climate}.${communityText} Suggest 5 real, currently-existing US institutions that plausibly fit this whole profile — especially respect the distance-from-home preference using his actual home location, and use the academic profile (if given) to make the selectivity label realistic for him specifically, not generic. Span a mix of selectivity (at least one reach, some match/likely). For each, include the URL of the school's own official admissions page. Respond ONLY as a JSON array of objects with keys: name, location, why_it_fits, selectivity, source_url — use short plain strings for every field, no markdown formatting. Output nothing except the JSON array itself.`;
+    const result = await callClaude(prompt, 'You are a factual college research assistant. Suggest only real, currently operating institutions, each with a real source URL. These are starting points for further research, not final recommendations. Never write essay content. Always respond with only a raw JSON array, no commentary before or after it.', true);
 
     let list;
     try{
@@ -1536,11 +1636,13 @@ async function getSuggestions(){
 
     resultsEl.innerHTML = `
       <div class="stack">
-        ${list.map(s=>`
+        ${list.map((s,i)=>`
           <div class="card suggestion-card">
             <div style="font-weight:700; font-size:14px;">${escapeHtml(s.name)} <span class="pill custom" style="margin-left:6px;">${escapeHtml(s.selectivity||'')}</span></div>
             <div style="font-size:12px; color:var(--text-dim); margin-top:2px;">${escapeHtml(s.location||'')}</div>
             <div style="font-size:13px; margin-top:8px;">${escapeHtml(s.why_it_fits||'')}</div>
+            ${s.source_url? `<div class="lookup-source" style="margin-top:8px;"><a href="${escapeHtml(s.source_url)}" target="_blank" rel="noopener">Explore school &rarr;</a></div>`:''}
+            <button class="btn secondary small" id="add-school-btn-${i}" style="margin-top:10px;" onclick='addSchoolFromSuggestion(${JSON.stringify(s.name)}, ${JSON.stringify(s.why_it_fits||'')}, "add-school-btn-${i}")'>+ Add to my list</button>
           </div>`).join('')}
       </div>
       <div class="disclaimer">These are AI-assisted starting points based on your answers, not a verified or ranked list. Always research each school's actual website, cost, and fit before adding it to your list.</div>
@@ -1549,6 +1651,54 @@ async function getSuggestions(){
     console.error('Find Schools lookup failed:', err);
     resultsEl.innerHTML = `<div class="lookup-status error">Couldn't fetch suggestions (${escapeHtml(err.message||'unknown error')}). Check Settings for API setup, or try browsing a site like the College Board's BigFuture in the meantime.</div>`;
   }
+}
+
+/* Adds a suggested school straight to the tracked Schools list, then
+   automatically runs the same deadline/requirements lookup used by
+   "Add school" — so there's no separate manual step. */
+async function addSchoolFromSuggestion(name, whyFits, btnId){
+  const btn = document.getElementById(btnId);
+  if(!name || !btn) return;
+  if(state.schools.some(s=>s.name.toLowerCase()===name.toLowerCase())){
+    btn.textContent = 'Already on your list';
+    btn.disabled = true;
+    return;
+  }
+  btn.textContent = 'Adding…';
+  btn.disabled = true;
+
+  const newSchool = {
+    id: uid(), name, type:'Regular Decision', deadline:'', notes: whyFits||'', sourceUrl:null, submitted:false,
+    items: { application:{stage:0}, essays:{stage:0}, testscores:{stage:0}, transcript:{stage:0} },
+    customItems: [], recLetters: []
+  };
+  state.schools.push(newSchool);
+  saveData();
+
+  try{
+    const prompt = `Look up current, accurate undergraduate application information for "${name}". I need: 1) the Early Action or Early Decision deadline if offered, 2) the Regular Decision deadline, 3) whether they are test-optional/test-blind/test-required, 4) a short list of required supplemental essays if any, 5) the single best URL (the school's own admissions page, ideally) where this was confirmed. Respond ONLY as compact JSON with keys: ea_deadline, ed_deadline, rd_deadline (use YYYY-MM-DD or null), test_policy, supplements, summary, source_url. No markdown, no commentary, just the JSON object.`;
+    const result = await callClaude(prompt, 'You are a factual research assistant helping a family look up publicly available college application deadlines and requirements. Only report verifiable factual information, and always include the URL you found it on. Never write, draft, or suggest essay content.', true);
+    let data;
+    try{ data = JSON.parse(result.replace(/```json|```/g,'').trim()); }
+    catch(e){ const match = result.match(/\{[\s\S]*\}/); if(match){ data = JSON.parse(match[0]); } else { throw new Error('parse fail'); } }
+
+    const s = state.schools.find(s=>s.id===newSchool.id);
+    if(s){
+      s.deadline = data.rd_deadline || data.ea_deadline || data.ed_deadline || '';
+      s.type = data.ea_deadline ? 'Early Action' : data.ed_deadline ? 'Early Decision' : 'Regular Decision';
+      const notesParts = [whyFits||''];
+      if(data.test_policy) notesParts.push('Test policy: '+data.test_policy);
+      if(data.supplements) notesParts.push('Supplements: '+data.supplements);
+      s.notes = notesParts.filter(Boolean).join(' · ');
+      s.sourceUrl = data.source_url || null;
+      saveData();
+    }
+    btn.textContent = 'Added ✓';
+  } catch(err){
+    console.error('Auto-lookup after add failed:', err);
+    btn.textContent = 'Added — set deadline manually';
+  }
+  renderSchools(); renderWeekly(); renderTotal(); renderMonthly(); renderHome();
 }
 
 /* =========================================================
@@ -1628,10 +1778,17 @@ function saveScholarship(){
 
 /* --- Scholarship finder: same shape as Find Schools --- */
 const SCHOLARSHIP_QUESTIONS = [
-  { key:'field', q:'What field or major (if you know it)?', opts:['STEM','Business','Arts/Humanities','Undecided / open to anything'] },
-  { key:'residency', q:'Where does he live?', opts:['California','Another US state','Not sure it matters'] },
-  { key:'type', q:'Any scholarship type to focus on?', opts:['Merit/academic','Community service & leadership','Specific background or identity','Any/all of the above'] },
-  { key:'interest', q:'Any hobby or activity worth searching around?', opts:['Sports/athletics','Arts (music, art, writing)','STEM projects/clubs','No specific angle'] },
+  { key:'field', q:'What field or major (if you know it)?', opts:['STEM','Business','Arts & Humanities','Health Sciences','Social Sciences & Education','Undecided / open to anything'] },
+  { key:'residency', q:'What state does he live in?', type:'text', placeholder:'e.g. California' },
+  { key:'academics', q:'Academic profile? (GPA/test range, or recognition like National Merit/AP Scholar — used only to match realistically)', opts:['Strong — mostly A\'s, upper-range scores','Solid — mix of A\'s/B\'s, mid-range scores','Developing — working to raise stats','Prefer not to say'] },
+  { key:'activities', q:'Activities, clubs, part-time job, or volunteer work?', type:'text', placeholder:'e.g. robotics club, marching band, part-time job at a grocery store, volunteers at animal shelter', optional:true },
+  { key:'career', q:'Any career goal in mind, even loosely?', type:'text', placeholder:'e.g. nursing, engineering, teaching, undecided', optional:true },
+  { key:'firstGen', q:'Would he be a first-generation college student?', opts:['Yes','No','Not sure'] },
+  { key:'gender', q:'Gender? (some scholarships are gender-specific, e.g. women in STEM)', opts:['Male','Female','Prefer not to say'] },
+  { key:'disability', q:'Does he have a disability that some scholarships specifically support?', opts:['Yes','No','Prefer not to say'] },
+  { key:'community', q:'Any community, cultural, religious, or identity affiliation that might open up specific scholarships?', type:'text', placeholder:'e.g. Latino heritage, specific faith community, LGBTQ+ — leave blank if none/prefer not to say', optional:true },
+  { key:'connections', q:'Does a parent belong to a union, work for a specific company, belong to a civic group (Rotary, Elks, VFW), or have a military/veteran connection? These often have their own scholarship programs.', type:'text', placeholder:'Leave blank if not applicable', optional:true },
+  { key:'needBased', q:'Include need-based scholarships too, or focus on merit/interest-based only?', opts:['Include both','Merit/interest-based only'] },
 ];
 let scholarshipAnswers = {};
 let scholarshipStep = 0;
@@ -1639,6 +1796,21 @@ function renderScholarshipDiscovery(){
   const el = document.getElementById('scholarship-discovery-card');
   if(scholarshipStep >= SCHOLARSHIP_QUESTIONS.length){ renderScholarshipResults(); return; }
   const q = SCHOLARSHIP_QUESTIONS[scholarshipStep];
+  const canContinue = q.optional || !!scholarshipAnswers[q.key];
+
+  if(q.type==='text'){
+    el.innerHTML = `
+      <div class="step-dots">${SCHOLARSHIP_QUESTIONS.map((_,i)=>`<span class="${i===scholarshipStep?'active':''}"></span>`).join('')}</div>
+      <h3 style="font-size:16px; margin-bottom:14px;">${q.q}</h3>
+      <input id="scholarship-text-input" type="text" value="${escapeHtml(scholarshipAnswers[q.key]||'')}" placeholder="${escapeHtml(q.placeholder||'')}"
+        style="width:100%; background:var(--bg-card); border:1px solid var(--line); color:var(--text); padding:10px 12px; border-radius:8px; font-size:14px; font-family:inherit;">
+      <div class="modal-actions" style="margin-top:20px;">
+        ${scholarshipStep>0? `<button class="btn secondary" onclick="scholarshipStep--; renderScholarshipDiscovery();">Back</button>` : '<div></div>'}
+        <button class="btn" onclick="answerScholarshipDiscoveryText('${q.key}')">Continue</button>
+      </div>`;
+    return;
+  }
+
   el.innerHTML = `
     <div class="step-dots">${SCHOLARSHIP_QUESTIONS.map((_,i)=>`<span class="${i===scholarshipStep?'active':''}"></span>`).join('')}</div>
     <h3 style="font-size:16px; margin-bottom:14px;">${q.q}</h3>
@@ -1647,12 +1819,19 @@ function renderScholarshipDiscovery(){
     </div>
     <div class="modal-actions" style="margin-top:20px;">
       ${scholarshipStep>0? `<button class="btn secondary" onclick="scholarshipStep--; renderScholarshipDiscovery();">Back</button>` : '<div></div>'}
-      <button class="btn" onclick="nextScholarshipDiscovery()" ${scholarshipAnswers[q.key]?'':'disabled style="opacity:0.5;"'}>Continue</button>
+      <button class="btn" onclick="nextScholarshipDiscovery()" ${canContinue?'':'disabled style="opacity:0.5;"'}>Continue</button>
     </div>`;
+}
+function answerScholarshipDiscoveryText(key){
+  const val = document.getElementById('scholarship-text-input').value.trim();
+  scholarshipAnswers[key] = val;
+  scholarshipStep++;
+  renderScholarshipDiscovery();
 }
 function answerScholarshipDiscovery(key, val){ scholarshipAnswers[key] = val; renderScholarshipDiscovery(); }
 function nextScholarshipDiscovery(){
-  if(!scholarshipAnswers[SCHOLARSHIP_QUESTIONS[scholarshipStep].key]) return;
+  const q = SCHOLARSHIP_QUESTIONS[scholarshipStep];
+  if(!q.optional && !scholarshipAnswers[q.key]) return;
   scholarshipStep++;
   renderScholarshipDiscovery();
 }
@@ -1661,7 +1840,7 @@ function renderScholarshipResults(){
   el.innerHTML = `
     <h3 style="font-size:16px; margin-bottom:10px;">Your search</h3>
     <div class="stack" style="margin-bottom:20px;">
-      ${SCHOLARSHIP_QUESTIONS.map(q=>`<div style="font-size:13px; color:var(--text-dim);"><strong style="color:var(--text);">${q.q}</strong> — ${scholarshipAnswers[q.key]}</div>`).join('')}
+      ${SCHOLARSHIP_QUESTIONS.filter(q=>scholarshipAnswers[q.key]).map(q=>`<div style="font-size:13px; color:var(--text-dim);"><strong style="color:var(--text);">${q.q}</strong> — ${escapeHtml(scholarshipAnswers[q.key])}</div>`).join('')}
     </div>
     <button class="btn blue" onclick="getScholarshipSuggestions()">Find scholarships</button>
     <button class="btn secondary" style="margin-left:8px;" onclick="restartScholarshipDiscovery()">Start over</button>
@@ -1674,7 +1853,15 @@ async function getScholarshipSuggestions(){
   const resultsEl = document.getElementById('scholarship-results');
   resultsEl.innerHTML = `<div class="lookup-status loading">Researching some real scholarships…</div>`;
   try{
-    const prompt = `A US high school senior has: field/major=${scholarshipAnswers.field}, residency=${scholarshipAnswers.residency}, scholarship type interest=${scholarshipAnswers.type}, activity angle=${scholarshipAnswers.interest}. Find 5 real, currently-active scholarships (not expired, actually accepting applications for the current cycle) that plausibly fit. For each include the source URL where you found it (ideally the scholarship's own official page). Respond ONLY as a JSON array of objects with keys: name, amount, deadline, eligibility, source_url — use an empty string "" for any field you don't know, never the word null or markdown formatting. Output nothing except the JSON array itself.`;
+    const a = scholarshipAnswers;
+    const optionalParts = [];
+    if(a.activities) optionalParts.push(`activities/interests: ${a.activities}`);
+    if(a.career) optionalParts.push(`career goal: ${a.career}`);
+    if(a.community) optionalParts.push(`community/cultural/identity affiliation: ${a.community}`);
+    if(a.connections) optionalParts.push(`family/organizational connections (employer, union, civic group, military family): ${a.connections}`);
+    const optionalText = optionalParts.length ? ` Additional details: ${optionalParts.join('; ')}.` : '';
+
+    const prompt = `A US high school senior has: field/major=${a.field}, state of residence=${a.residency||'not given'}, self-reported academic profile=${a.academics||'not given'}, first-generation college student=${a.firstGen||'not given'}, gender=${a.gender||'prefer not to say'}, disability relevant to scholarships=${a.disability||'prefer not to say'}, scholarship scope preference=${a.needBased||'include both'}.${optionalText} Find 5 real, currently-active scholarships (not expired, actually accepting applications for the current cycle) that plausibly fit this whole profile — use the specific details given (activities, career goal, identity/community, family connections) to find genuinely targeted matches, not just generic ones, and respect the merit-only vs need-based-included preference. For each include the source URL where you found it (ideally the scholarship's own official page). Respond ONLY as a JSON array of objects with keys: name, amount, deadline, eligibility, source_url — use an empty string "" for any field you don't know, never the word null or markdown formatting. Output nothing except the JSON array itself.`;
     const result = await callClaude(prompt, 'You are a factual scholarship research assistant for a family. Only report real, currently active, verifiable scholarships with a real source URL. Flag nothing that requires a payment to apply — legitimate scholarships never charge a fee. Never write essay or application content. Always respond with only a raw JSON array, no commentary before or after it.', true);
 
     let list;
@@ -1859,6 +2046,9 @@ function attachCloudSync(){
       state.schools = state.schools || [];
       state.activities = state.activities || [];
       state.scholarships = state.scholarships || [];
+      if(!state.gettingStarted){
+        state.gettingStarted = DEFAULT_GETTING_STARTED.map(label => ({ id: uid(), label, stage: 0 }));
+      }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } else {
       // first device to connect seeds the cloud doc with whatever's local
