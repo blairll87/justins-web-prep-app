@@ -213,7 +213,7 @@
   }
 
   /* ---------- monthly calendar ---------- */
-  .cal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+  .cal-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; gap:10px; flex-wrap:wrap; }
   .cal-head .month-label{ font-family: var(--font-display); font-size:18px; }
   .cal-nav{ display:flex; gap:8px; }
   .cal-grid{ display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; }
@@ -223,6 +223,8 @@
     padding:6px; font-size:11px; display:flex; flex-direction:column; gap:3px;
   }
   .cal-cell.pad{ background:transparent; border-color:transparent; }
+  .cal-cell.today{ border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset; }
+  .cal-cell.today .daynum{ color: var(--red); }
   .cal-cell .daynum{ font-size:11px; color: var(--text-faint); font-weight:700; }
   .cal-cell .cal-item{
     font-size:10px; padding:2px 5px; border-radius:5px; background: var(--bg-raised);
@@ -235,6 +237,13 @@
   .cal-cell .cal-item.essays{ border-color: var(--green); }
   .cal-cell .cal-item.scholarship{ border-color:#f2b39a; }
   .cal-cell .cal-item.custom{ border-color: var(--red); }
+  .cal-cell .cal-item.cal-target{
+    border-left-style: dashed; opacity:0.75; background: transparent; border-width:1px 1px 1px 3px; border-style: dashed;
+  }
+  .cal-legend{ display:flex; flex-wrap:wrap; gap:14px; margin-top:16px; font-size:11px; color: var(--text-dim); }
+  .cal-legend-item{ display:flex; align-items:center; gap:6px; }
+  .cal-legend-swatch{ width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+  .cal-legend-swatch.dashed{ background:transparent; border:1.5px dashed var(--text-faint); }
 
   /* ---------- filter bar ---------- */
   .filterbar{ display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
@@ -506,16 +515,18 @@
       <div class="view-head">
         <div>
           <h1>Monthly view</h1>
-          <p>The whole month at a glance.</p>
+          <p>The whole month at a glance — solid bars are real deadlines, dashed bars are recommended pacing targets.</p>
         </div>
         <button class="btn" onclick="openTaskModal()">+ Add deadline</button>
       </div>
       <div class="cal-head">
         <button class="btn secondary small" onclick="shiftMonth(-1)">&larr; Prev</button>
         <div class="month-label" id="month-label"></div>
+        <input type="month" id="cal-month-picker" onchange="jumpToMonth(this.value)" style="background:var(--bg-card); border:1px solid var(--line); color:var(--text); padding:6px 10px; border-radius:8px; font-size:12px; font-family:inherit;">
         <button class="btn secondary small" onclick="shiftMonth(1)">Next &rarr;</button>
       </div>
       <div class="cal-grid" id="cal-grid"></div>
+      <div class="cal-legend" id="cal-legend"></div>
     </section>
 
     <!-- TOTAL -->
@@ -1122,28 +1133,128 @@ function escapeHtml(str){
    MONTHLY VIEW
    ========================================================= */
 let calDate = new Date();
+let calAutoJumped = false;
 function shiftMonth(delta){ calDate.setMonth(calDate.getMonth()+delta); renderMonthly(); }
+function jumpToMonth(value){
+  if(!value) return;
+  const [y,m] = value.split('-').map(Number);
+  calDate = new Date(y, m-1, 1);
+  renderMonthly();
+}
+const CATEGORY_COLORS = {
+  school:{ color:'var(--blue)', label:'School' },
+  testing:{ color:'var(--amber)', label:'Testing' },
+  recs:{ color:'#e3a9f2', label:'Rec letters' },
+  essays:{ color:'var(--green)', label:'Essays' },
+  scholarship:{ color:'#f2b39a', label:'Scholarship' },
+  custom:{ color:'var(--red)', label:'Other' },
+};
+/* Maps a school checklist item key to the same color category used
+   elsewhere in the app, so pacing targets and hard deadlines read
+   consistently (e.g. essay targets and essay deadlines are both green). */
+const ITEM_KEY_TO_CATEGORY = { application:'school', essays:'essays', testscores:'testing', transcript:'custom' };
+
+/* Soft "recommended by" dates from the pacing engine — only future ones,
+   since past-due targets are already surfaced as "behind" elsewhere. */
+function pacingTargets(){
+  const targets = [];
+  const today = new Date(); today.setHours(0,0,0,0);
+  state.schools.forEach(raw=>{
+    const s = migrateSchool(raw);
+    if(s.submitted || !s.deadline) return;
+    const deadlineDate = new Date(s.deadline+'T00:00:00');
+
+    Object.keys(STAGE_SETS).forEach(key=>{
+      const stages = STAGE_SETS[key];
+      const cur = s.items[key].stage;
+      if(cur >= stages.length-1) return;
+      (ITEM_TIMING[key]||[]).forEach(t=>{
+        if(t.stage <= cur) return;
+        const targetDate = new Date(deadlineDate);
+        targetDate.setDate(targetDate.getDate() - t.days);
+        if(targetDate < today) return;
+        targets.push({
+          date: targetDate.toISOString().slice(0,10),
+          category: ITEM_KEY_TO_CATEGORY[key],
+          title: `Target: ${s.name} — ${stages[t.stage]}`
+        });
+      });
+    });
+
+    s.recLetters.forEach(rec=>{
+      if(rec.stage==='received') return;
+      if(rec.stage==='not_asked'){
+        const targetDate = new Date(deadlineDate);
+        targetDate.setDate(targetDate.getDate() - REC_ASK_BY_DAYS);
+        if(targetDate >= today){
+          targets.push({ date: targetDate.toISOString().slice(0,10), category:'recs', title:`Target: ${s.name} — ask ${rec.name}` });
+        }
+      } else if(rec.stage==='asked' && rec.askedDate){
+        const followupDate = new Date(rec.askedDate+'T00:00:00');
+        followupDate.setDate(followupDate.getDate() + REC_FOLLOWUP_AFTER_DAYS);
+        if(followupDate >= today){
+          targets.push({ date: followupDate.toISOString().slice(0,10), category:'recs', title:`Target: ${s.name} — follow up with ${rec.name}` });
+        }
+      }
+    });
+  });
+  return targets;
+}
+
 function renderMonthly(){
+  const items = allItems();
+  const targets = pacingTargets();
+
+  // First time Monthly is opened this session, if the current month is
+  // empty, jump forward to the nearest month that actually has something.
+  if(!calAutoJumped){
+    calAutoJumped = true;
+    const hasAny = [...items, ...targets].some(i=>{
+      const d = new Date(i.date+'T00:00:00');
+      return d.getFullYear()===calDate.getFullYear() && d.getMonth()===calDate.getMonth();
+    });
+    if(!hasAny){
+      const all = [...items, ...targets].map(i=>new Date(i.date+'T00:00:00')).sort((a,b)=>a-b);
+      const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+      const nearest = all.find(d=> d>=todayStart) || all[0];
+      if(nearest){ calDate = new Date(nearest.getFullYear(), nearest.getMonth(), 1); }
+    }
+  }
+
   const y = calDate.getFullYear(), m = calDate.getMonth();
   document.getElementById('month-label').textContent = calDate.toLocaleDateString('en-US',{month:'long', year:'numeric'});
+  const picker = document.getElementById('cal-month-picker');
+  if(picker) picker.value = `${y}-${String(m+1).padStart(2,'0')}`;
+
   const grid = document.getElementById('cal-grid');
   const dows = ['S','M','T','W','T','F','S'];
   let html = dows.map(d=>`<div class="cal-dow">${d}</div>`).join('');
 
   const firstDay = new Date(y,m,1).getDay();
   const daysInMonth = new Date(y,m+1,0).getDate();
-  const items = allItems();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = today.toISOString().slice(0,10);
 
   for(let i=0;i<firstDay;i++) html += `<div class="cal-cell pad"></div>`;
   for(let day=1; day<=daysInMonth; day++){
     const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const dayItems = items.filter(i=> i.date === dateStr);
-    html += `<div class="cal-cell">
+    const dayTargets = targets.filter(t=> t.date === dateStr);
+    const isToday = dateStr === todayStr;
+    html += `<div class="cal-cell ${isToday?'today':''}">
       <div class="daynum">${day}</div>
       ${dayItems.map(i=>`<div class="cal-item ${i.category}" title="${escapeHtml(i.title)}">${escapeHtml(i.title)}</div>`).join('')}
+      ${dayTargets.map(t=>`<div class="cal-item cal-target ${t.category}" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>`).join('')}
     </div>`;
   }
   grid.innerHTML = html;
+
+  const legendEl = document.getElementById('cal-legend');
+  if(legendEl){
+    legendEl.innerHTML = Object.entries(CATEGORY_COLORS).map(([key,c])=>
+      `<div class="cal-legend-item"><span class="cal-legend-swatch" style="background:${c.color};"></span>${c.label}</div>`
+    ).join('') + `<div class="cal-legend-item"><span class="cal-legend-swatch dashed"></span>Pacing target</div>`;
+  }
 }
 
 /* =========================================================
