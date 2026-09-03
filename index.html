@@ -323,6 +323,15 @@
   .step-dots span.active{ background: var(--red); }
   .suggestion-card{ border-left:3px solid var(--blue); }
   .disclaimer{ font-size:11px; color: var(--text-faint); margin-top:10px; font-style:italic; }
+  .gs-banner{
+    display:flex; justify-content:space-between; align-items:center; gap:16px;
+    background: linear-gradient(120deg, rgba(47,111,237,0.12), rgba(224,41,62,0.06));
+    border:1px solid var(--blue-dim); border-radius:10px; padding:12px 16px; margin-bottom:16px;
+  }
+  .gs-banner-text{ font-size:13px; color: var(--text-dim); }
+  .gs-banner-text strong{ color: var(--text); }
+  .gs-banner-actions{ display:flex; gap:8px; align-items:center; flex-shrink:0; }
+  @media (max-width: 700px){ .gs-banner{ flex-direction:column; align-items:flex-start; } }
   .scholarship-caution{
     border-left:3px solid var(--amber); font-size:12.5px; color: var(--text-dim); line-height:1.5;
     margin-bottom:18px;
@@ -374,6 +383,7 @@
     </div>
     <nav id="nav">
       <button class="nav-btn active" data-view="home"><span class="nav-dot"></span>Home</button>
+      <button class="nav-btn" data-view="gettingstarted"><span class="nav-dot"></span>Getting Started</button>
       <button class="nav-btn" data-view="weekly"><span class="nav-dot"></span>Weekly</button>
       <button class="nav-btn" data-view="monthly"><span class="nav-dot"></span>Monthly</button>
       <button class="nav-btn" data-view="total"><span class="nav-dot"></span>Everything</button>
@@ -391,6 +401,15 @@
 
     <!-- HOME -->
     <section class="view active" id="view-home">
+      <div class="gs-banner" id="gs-banner">
+        <div class="gs-banner-text">
+          <strong>New here?</strong> Check out Getting Started for early-phase tasks worth doing now, even before deadlines feel close.
+        </div>
+        <div class="gs-banner-actions">
+          <button class="btn secondary small" onclick="showView('gettingstarted')">View tasks</button>
+          <button class="icon-btn" title="Dismiss" onclick="dismissGettingStartedBanner()">&times;</button>
+        </div>
+      </div>
       <div class="home-hero light">
         <svg class="hero-web" viewBox="0 0 400 240" preserveAspectRatio="xMaxYMin meet" aria-hidden="true">
           <g fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="1">
@@ -413,17 +432,6 @@
         </div>
       </div>
 
-      <div class="card discover-callout" onclick="showView('discovery')">
-        <div class="discover-callout-text">
-          <div class="discover-eyebrow">Not sure where to apply yet?</div>
-          <h3>Find schools that actually fit you</h3>
-          <p>Answer five quick questions about what you want &mdash; location, size, vibe, major &mdash; and get real starting points to research. No pressure, just a shorter, smarter list to work from.</p>
-        </div>
-        <div class="discover-callout-cta">Start <span>&rarr;</span></div>
-      </div>
-
-      <div class="home-stats" id="home-stats"></div>
-
       <div class="card home-panel" id="home-priority-panel" style="margin-bottom:16px;">
         <div class="home-panel-head">
           <h3>Priority actions</h3>
@@ -431,12 +439,17 @@
         <div id="home-priority" class="stack"></div>
       </div>
 
-      <div class="card home-panel" id="home-getting-started-panel" style="margin-bottom:16px;">
-        <div class="home-panel-head">
-          <h3>Getting started</h3>
+      <div class="home-stats" id="home-stats"></div>
+
+      <div id="home-discover-wrap">
+        <div class="card discover-callout" onclick="showView('discovery')">
+          <div class="discover-callout-text">
+            <div class="discover-eyebrow">Not sure where to apply yet?</div>
+            <h3>Find schools that actually fit you</h3>
+            <p>A real questionnaire about what you want &mdash; location, size, vibe, major, and more &mdash; and real starting points to research. No pressure, just a shorter, smarter list to work from.</p>
+          </div>
+          <div class="discover-callout-cta">Start <span>&rarr;</span></div>
         </div>
-        <div id="home-getting-started" class="item-list"></div>
-        <button class="btn secondary small" style="margin-top:10px;" onclick="openGettingStartedModal()">+ Add task</button>
       </div>
 
       <div class="home-grid">
@@ -457,10 +470,23 @@
       </div>
 
       <div class="home-quicklinks" style="margin-top:16px;">
+        <button class="btn secondary" onclick="showView('gettingstarted')">Getting started</button>
         <button class="btn secondary" onclick="showView('activities')">Log an activity</button>
         <button class="btn secondary" onclick="showView('tips')">Browse tips</button>
         <button class="btn secondary" onclick="openTaskModal()">+ Add deadline</button>
       </div>
+    </section>
+
+    <!-- GETTING STARTED -->
+    <section class="view" id="view-gettingstarted">
+      <div class="view-head">
+        <div>
+          <h1>Getting started</h1>
+          <p>Early-phase tasks that aren't tied to any single deadline &mdash; useful right now, while things like exact application deadlines still feel far off.</p>
+        </div>
+        <button class="btn" onclick="openGettingStartedModal()">+ Add task</button>
+      </div>
+      <div id="gettingstarted-content" class="item-list"></div>
     </section>
 
     <!-- WEEKLY -->
@@ -793,23 +819,27 @@ let config = loadConfig();
 
 const GETTING_STARTED_STAGES = ['Not started','In progress','Done','Not needed'];
 const DEFAULT_GETTING_STARTED = [
-  'Narrow down your school list using Find Schools',
-  'Set up your Common App / Cal State Apply / UC application accounts',
-  'Start brainstorming personal statement topics (just ideas, no need to write yet)',
-  'Build out your Activities list with everything you\'ve done so far',
-  'Think about who you\'ll ask for recommendation letters',
-  'Request an unofficial transcript to review your course history',
-  'Browse the Find Scholarships tool for a first pass',
-  'Connect with your school counselor early — they help with transcripts and often write a counselor rec',
-  'Put together a resume/brag sheet to give recommenders when you ask',
-  'Set up a dedicated email folder/label for college-related emails',
-  'Decide on a testing plan — worth a retake? Register early if so',
-  'FAFSA opens October 1 — worth knowing the date, even before diving into details with Mom',
+  { label:'Narrow down your school list using Find Schools', link:'discovery' },
+  { label:'Set up your Common App / Cal State Apply / UC application accounts' },
+  { label:'Start brainstorming personal statement topics (just ideas, no need to write yet)' },
+  { label:'Build out your Activities list with everything you\'ve done so far', link:'activities' },
+  { label:'Think about who you\'ll ask for recommendation letters' },
+  { label:'Request an unofficial transcript to review your course history' },
+  { label:'Browse the Find Scholarships tool for a first pass', link:'scholarshipfinder' },
+  { label:'Connect with your school counselor early — they help with transcripts and often write a counselor rec' },
+  { label:'Put together a resume/brag sheet to give recommenders when you ask' },
+  { label:'Set up a dedicated email folder/label for college-related emails' },
+  { label:'Decide on a testing plan — worth a retake? Register early if so' },
+  { label:'FAFSA opens October 1 — worth knowing the date, even before diving into details with Mom' },
 ];
 /* Seed once for anyone (new or existing) who doesn't have this list yet —
    won't re-seed or override if they've already started using it. */
 if(state.gettingStarted === undefined){
-  state.gettingStarted = DEFAULT_GETTING_STARTED.map(label => ({ id: uid(), label, stage: 0 }));
+  state.gettingStarted = DEFAULT_GETTING_STARTED.map(d => ({ id: uid(), label:d.label, link:d.link||null, stage: 0 }));
+  saveData();
+}
+if(!state.firstSeenGettingStarted){
+  state.firstSeenGettingStarted = new Date().toISOString();
   saveData();
 }
 
@@ -843,7 +873,7 @@ function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toStr
 /* =========================================================
    Navigation
    ========================================================= */
-const views = ['home','weekly','monthly','total','schools','discovery','scholarships','scholarshipfinder','activities','tips','settings'];
+const views = ['home','gettingstarted','weekly','monthly','total','schools','discovery','scholarships','scholarshipfinder','activities','tips','settings'];
 document.getElementById('nav').addEventListener('click', (e)=>{
   const btn = e.target.closest('.nav-btn');
   if(!btn) return;
@@ -863,6 +893,7 @@ function showView(name){
   if(name==='scholarships') renderScholarships();
   if(name==='scholarshipfinder') renderScholarshipDiscovery();
   if(name==='activities') renderActivities();
+  if(name==='gettingstarted') renderGettingStarted();
   if(name==='tips') renderTips();
 }
 
@@ -919,7 +950,9 @@ function urgencyBadgeLabel(urgency){
 function renderHome(){
   document.getElementById('home-quote').textContent =
     SPIDEY_QUOTES[Math.floor(Math.random()*SPIDEY_QUOTES.length)];
-  renderGettingStarted();
+  const discoverWrap = document.getElementById('home-discover-wrap');
+  if(discoverWrap) discoverWrap.style.display = state.schools.length ? 'none' : 'block';
+  updateGettingStartedBannerVisibility();
 
   const items = allItems();
   const open = items.filter(i=>!i.done);
@@ -952,14 +985,17 @@ function renderHome(){
     </div>
   `;
 
-  const priActions = priorityActions().slice(0,5);
-  document.getElementById('home-priority').innerHTML = priActions.length
+  const allPriActions = priorityActions();
+  const priActions = allPriActions.slice(0,5);
+  const overflow = allPriActions.length - priActions.length;
+  document.getElementById('home-priority').innerHTML = (priActions.length
     ? priActions.map(a=>`
         <div class="task-row">
           <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${urgencyBadgeLabel(a.urgency)}</span>
-          <div class="task-body"><div class="task-title">${escapeHtml(a.text)}</div></div>
+          <div class="task-body"><div class="task-title">${escapeHtml(a.text)} ${a.link? `<a href="#" onclick="event.preventDefault(); showView('${a.link}');" style="color:var(--blue); font-size:12px; margin-left:6px;">Go &rarr;</a>` : ''}</div></div>
         </div>`).join('')
-    : `<div class="empty">Nothing urgent right now — nice pace.</div>`;
+    : `<div class="empty">Nothing urgent right now — nice pace.</div>`)
+    + (overflow>0 ? `<div style="text-align:center; margin-top:8px;"><a href="#" onclick="event.preventDefault(); showView('gettingstarted');" style="font-size:12px; color:var(--text-faint);">+${overflow} more — see Getting Started &rarr;</a></div>` : '');
 
   const nextUpEl = document.getElementById('home-nextup');
   const nextItems = upcoming.slice(0,5);
@@ -997,7 +1033,7 @@ function renderWeekly(){
     html += `<div class="week-group"><h3>Focus this week</h3>${priActions.slice(0,6).map(a=>`
       <div class="task-row">
         <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${urgencyBadgeLabel(a.urgency)}</span>
-        <div class="task-body"><div class="task-title">${escapeHtml(a.text)}</div></div>
+        <div class="task-body"><div class="task-title">${escapeHtml(a.text)} ${a.link? `<a href="#" onclick="event.preventDefault(); showView('${a.link}');" style="color:var(--blue); font-size:12px; margin-left:6px;">Go &rarr;</a>` : ''}</div></div>
       </div>`).join('')}</div>`;
   }
   html += renderGroup('Overdue', overdue, true);
@@ -1254,7 +1290,7 @@ function priorityActions(){
      nothing else is urgent yet, which is exactly when they're useful. */
   (state.gettingStarted||[]).forEach(item=>{
     if(item.stage>=2) return; // Done or Not needed
-    actions.push({ urgency:'general', days:0, text: item.label });
+    actions.push({ urgency:'general', days:0, text: item.label, link: item.link||null });
   });
 
   const URGENCY_RANK = { behind:0, upcoming:1, general:2 };
@@ -1270,12 +1306,12 @@ function priorityActions(){
    to any specific deadline. Feeds into priorityActions() above.
    ========================================================= */
 function renderGettingStarted(){
-  const el = document.getElementById('home-getting-started');
+  const el = document.getElementById('gettingstarted-content');
   if(!el) return;
   const items = state.gettingStarted||[];
   el.innerHTML = items.length ? items.map(item=>`
     <div class="item-row ${item.stage>=2?'item-row-resolved':''}">
-      <span class="item-label">${escapeHtml(item.label)}</span>
+      <span class="item-label">${escapeHtml(item.label)} ${item.link? `<a href="#" onclick="event.preventDefault(); showView('${item.link}');" style="color:var(--blue); font-size:12px; margin-left:6px;">Go &rarr;</a>` : ''}</span>
       <select onchange="updateGettingStartedStage('${item.id}', this.selectedIndex)">
         ${GETTING_STARTED_STAGES.map((label,i)=>`<option value="${i}" ${i===item.stage?'selected':''}>${label}</option>`).join('')}
       </select>
@@ -1302,6 +1338,29 @@ function saveGettingStartedItem(){
   saveData();
   closeModal('getting-started-modal-bg');
   renderGettingStarted(); renderHome(); renderWeekly();
+}
+
+/* The Home banner fades out on its own once either 30 days have passed
+   since Getting Started first appeared, or at least 3 tasks have been
+   resolved (Done or Not needed) — whichever comes first — plus a manual
+   dismiss for anyone who wants it gone sooner. */
+function updateGettingStartedBannerVisibility(){
+  const el = document.getElementById('gs-banner');
+  if(!el) return;
+  if(state.dismissedGettingStartedBanner){ el.style.display = 'none'; return; }
+  const resolved = (state.gettingStarted||[]).filter(i=>i.stage>=2).length;
+  if(resolved >= 3){ el.style.display = 'none'; return; }
+  if(state.firstSeenGettingStarted){
+    const daysSince = Math.floor((new Date() - new Date(state.firstSeenGettingStarted)) / 86400000);
+    if(daysSince >= 30){ el.style.display = 'none'; return; }
+  }
+  el.style.display = 'flex';
+}
+function dismissGettingStartedBanner(){
+  state.dismissedGettingStartedBanner = true;
+  saveData();
+  const el = document.getElementById('gs-banner');
+  if(el) el.style.display = 'none';
 }
 
 function renderSchools(){
@@ -2047,7 +2106,7 @@ function attachCloudSync(){
       state.activities = state.activities || [];
       state.scholarships = state.scholarships || [];
       if(!state.gettingStarted){
-        state.gettingStarted = DEFAULT_GETTING_STARTED.map(label => ({ id: uid(), label, stage: 0 }));
+        state.gettingStarted = DEFAULT_GETTING_STARTED.map(d => ({ id: uid(), label:d.label, link:d.link||null, stage: 0 }));
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } else {
