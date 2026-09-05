@@ -645,7 +645,7 @@
         <div class="card">
           <h2 style="font-family:var(--font-display); font-size:15px; margin-bottom:10px;">AI lookups &amp; shared data (Firebase)</h2>
           <p style="font-size:12.5px; color:var(--text-dim); line-height:1.5; margin-bottom:12px;">
-            Once connected, schools/tasks/activities sync through Firebase so Justin, Mom, or anyone with this link see the same data on any device — not just whichever browser added it. This also powers the AI lookups (deadline/requirement research only — it never writes or edits essay content).
+            This is now built into the app automatically — no setup needed on new devices. Schools/tasks/activities sync through Firebase so Justin, Mom, or anyone with this link see the same data on any device. This also powers the AI lookups (deadline/requirement research only — it never writes or edits essay content). The box below is only for switching to a different Firebase project if you ever need to.
           </p>
           <div class="field"><label>Firebase config (paste the JS object from your Firebase project)</label><textarea id="firebase-config-input" placeholder='{"apiKey": "...", "projectId": "...", ...}'></textarea></div>
           <button class="btn secondary small" onclick="saveFirebaseConfig()">Save</button>
@@ -799,7 +799,7 @@
    to know to hard-refresh manually.
    ========================================================= */
 (function(){
-  const APP_VERSION = '2026-09-05-1';
+  const APP_VERSION = '2026-09-05-2';
   try{
     const params = new URLSearchParams(location.search);
     if(params.get('v') === APP_VERSION) return; // already reloaded fresh
@@ -2215,14 +2215,27 @@ document.querySelectorAll('.modal-bg').forEach(bg=>{
    ========================================================= */
 let fbApp=null, fbDb=null;
 
+/* Baked directly into the app so ANY device loading this file connects
+   automatically — no manual Settings step needed on each new device.
+   This is safe to be public: a Firebase web config is not a secret,
+   access is controlled separately by Firestore security rules. */
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyB5iqy5ZOIKRbJ7CQRMo_Njz_m4sR1SEZE",
+  authDomain: "justins-web-prep-app.firebaseapp.com",
+  projectId: "justins-web-prep-app",
+  storageBucket: "justins-web-prep-app.firebasestorage.app",
+  messagingSenderId: "593808905393",
+  appId: "1:593808905393:web:e6e4c257a141fcd7413e90"
+};
+
 function initFirebaseIfConfigured(){
-  if(config.firebaseConfig){
-    try{
-      fbApp = firebase.initializeApp(config.firebaseConfig);
-      fbDb = firebase.firestore();
-      attachCloudSync();
-    }catch(e){ console.warn('Firebase init failed', e); }
-  }
+  const cfg = config.firebaseConfig || DEFAULT_FIREBASE_CONFIG;
+  try{
+    fbApp = firebase.initializeApp(cfg);
+    fbDb = firebase.firestore();
+    attachCloudSync();
+    fetchEmailConfigIfMissing();
+  }catch(e){ console.warn('Firebase init failed', e); }
 }
 
 /* Live-syncs schools/tasks/activities through Firestore so Justin, Mom,
@@ -2253,6 +2266,21 @@ function attachCloudSync(){
 function refreshCurrentView(){
   const activeBtn = document.querySelector('.nav-btn.active');
   if(activeBtn) showView(activeBtn.dataset.view);
+}
+
+/* So a new device doesn't need EmailJS re-entered manually either —
+   pull it from Firestore once, if this browser doesn't have it yet. */
+async function fetchEmailConfigIfMissing(){
+  if(config.emailjs && config.emailjs.service) return; // already set locally
+  try{
+    const doc = await fbDb.collection('config').doc('emailjs').get();
+    if(doc.exists){
+      config.emailjs = doc.data();
+      saveConfig();
+      if(config.emailjs.key){ try{ emailjs.init(config.emailjs.key); }catch(e){} }
+      loadSettingsIntoInputs();
+    }
+  }catch(e){ console.warn('Could not fetch EmailJS config from Firestore', e); }
 }
 
 function saveFirebaseConfig(){
