@@ -792,6 +792,28 @@
 
 <script>
 /* =========================================================
+   CACHE-BUSTING — bump APP_VERSION every time this file is
+   updated. On load, if a device's browser has a different
+   version stored than this one, force a fresh reload (with a
+   cache-busting query param) instead of relying on the person
+   to know to hard-refresh manually.
+   ========================================================= */
+(function(){
+  const APP_VERSION = '2026-09-05-1';
+  try{
+    const params = new URLSearchParams(location.search);
+    if(params.get('v') === APP_VERSION) return; // already reloaded fresh
+    const seen = localStorage.getItem('webprep_app_version');
+    localStorage.setItem('webprep_app_version', APP_VERSION);
+    if(seen && seen !== APP_VERSION){
+      const url = new URL(location.href);
+      url.searchParams.set('v', APP_VERSION);
+      location.replace(url.toString());
+    }
+  } catch(e){ /* localStorage unavailable — skip silently */ }
+})();
+
+/* =========================================================
    WEB PREP — data layer
    All app data lives in localStorage on this device/browser.
    Justin and Mom share the same link/device pattern used for
