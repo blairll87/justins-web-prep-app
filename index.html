@@ -784,7 +784,9 @@
   <div class="modal">
     <h2 id="weekly-modal-title">Add to this week</h2>
     <div class="field"><label>What do you want to get done?</label><input id="weekly-title" placeholder="e.g. Draft 3 personal statement topic ideas"></div>
-    <div class="field"><label>Task size (what it pays)</label><select id="weekly-size"></select></div>
+    <div class="field"><label>Task size (what it pays)</label><select id="weekly-size" onchange="toggleCustomAmt()"></select>
+      <input type="number" min="0" step="0.25" id="weekly-custom" placeholder="$ amount" style="margin-top:8px; display:none; max-width:140px;">
+    </div>
     <div class="field"><label>Week</label><select id="weekly-week"></select></div>
     <div class="field"><label>Notes (optional)</label><textarea id="weekly-notes" placeholder="Any extra detail"></textarea></div>
     <div class="modal-actions">
@@ -897,7 +899,7 @@
    to know to hard-refresh manually.
    ========================================================= */
 (function(){
-  const APP_VERSION = '2026-10-11-3';
+  const APP_VERSION = '2026-10-11-4';
   try{
     const params = new URLSearchParams(location.search);
     if(params.get('v') === APP_VERSION) return; // already reloaded fresh
@@ -1198,9 +1200,9 @@ function weekRangeLabel(ws){
   const f=d=>d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
   return f(st)+' – '+f(en);
 }
-const SIZE_LABEL = { small:'Small', medium:'Medium', big:'Big' };
+const SIZE_LABEL = { small:'Small', medium:'Medium', big:'Big', custom:'Custom' };
 function fmtMoney(n){ n = Number(n)||0; return '$' + (Math.abs(n%1)>0.001 ? n.toFixed(2) : String(Math.round(n))); }
-function taskPayAmount(t){ return state.camera.tiers[t.size||'small'] || 0; }
+function taskPayAmount(t){ return t.size==='custom' ? (Number(t.customAmount)||0) : (state.camera.tiers[t.size||'small'] || 0); }
 function fundTotal(){ return (state.camera.payments||[]).reduce((a,p)=>a+(Number(p.amount)||0),0); }
 function weeklyTaskRowHtml(t){
   const amt = taskPayAmount(t);
@@ -1231,7 +1233,8 @@ function payWeeklyTask(id){
   saveData(); renderWeekly(); renderHome();
 }
 function paySizeOptions(selected){
-  return ['small','medium','big'].map(k=>`<option value="${k}" ${k===selected?'selected':''}>${SIZE_LABEL[k]} (${fmtMoney(state.camera.tiers[k])})</option>`).join('');
+  return ['small','medium','big'].map(k=>`<option value="${k}" ${k===selected?'selected':''}>${SIZE_LABEL[k]} (${fmtMoney(state.camera.tiers[k])})</option>`).join('')
+    + `<option value="custom" ${selected==='custom'?'selected':''}>Custom amount…</option>`;
 }
 function renderFundHtml(){
   const c = state.camera, total = fundTotal();
@@ -1359,12 +1362,17 @@ function deleteWeeklyTask(id){
   saveData(); renderWeekly(); renderHome();
 }
 let editingWeeklyId = null;
+function toggleCustomAmt(){
+  document.getElementById('weekly-custom').style.display = document.getElementById('weekly-size').value==='custom' ? 'block' : 'none';
+}
 function openWeeklyModal(task){
   editingWeeklyId = task ? task.id : null;
   document.getElementById('weekly-modal-title').textContent = task ? 'Edit task' : (weeklyOffset>0 ? 'Add to next week' : 'Add to this week');
   document.getElementById('weekly-title').value = task ? task.title : '';
   document.getElementById('weekly-notes').value = task ? (task.notes||'') : '';
   document.getElementById('weekly-size').innerHTML = paySizeOptions(task ? (task.size||'small') : 'small');
+  document.getElementById('weekly-custom').value = (task && task.size==='custom') ? task.customAmount : '';
+  toggleCustomAmt();
   const cur = weekStartOf(new Date());
   const target = task ? task.weekStart : addDaysStr(cur, Math.max(0,weeklyOffset)*7);
   const opts = [0,1,2,3].map(n=> addDaysStr(cur,n*7));
@@ -1382,12 +1390,14 @@ function saveWeeklyTask(){
   const notes = document.getElementById('weekly-notes').value.trim();
   const weekStart = document.getElementById('weekly-week').value;
   const size = document.getElementById('weekly-size').value;
+  const customAmount = Math.max(0, parseFloat(document.getElementById('weekly-custom').value)||0);
+  if(size==='custom' && !(customAmount>0)){ alert('Enter a dollar amount for the custom task.'); return; }
   if(!title){ alert('Add a task first.'); return; }
   if(editingWeeklyId){
     const t = state.weeklyTasks.find(t=>t.id===editingWeeklyId);
-    if(t){ t.title=title; t.notes=notes; if(!t.paid) t.size=size; if(t.weekStart!==weekStart){ t.weekStart=weekStart; delete t.carriedFrom; } }
+    if(t){ t.title=title; t.notes=notes; if(!t.paid){ t.size=size; if(size==='custom') t.customAmount=customAmount; else delete t.customAmount; } if(t.weekStart!==weekStart){ t.weekStart=weekStart; delete t.carriedFrom; } }
   } else {
-    state.weeklyTasks.push({ id: uid(), title, notes, size, weekStart, done:false });
+    state.weeklyTasks.push({ id: uid(), title, notes, size, ...(size==='custom' ? { customAmount } : {}), weekStart, done:false });
   }
   saveData(); closeModal('weekly-modal-bg'); renderWeekly(); renderHome();
 }
