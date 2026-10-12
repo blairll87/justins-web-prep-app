@@ -2,11 +2,11 @@ name: Send Web Prep weekly email
 
 on:
   schedule:
-    # 15:00 UTC = 7:00 AM Pacific Time (roughly — shifts an hour with
+    # 15:00 UTC = 8:00 AM Pacific Daylight Time / 7:00 AM Pacific Standard (roughly — shifts an hour with
     # daylight saving, so actual send time may drift between 7-8am).
     # Change the day/time by editing the numbers below:
-    #   minute hour day-of-month month day-of-week (0 = Sunday)
-    - cron: '0 15 * * 0'
+    #   minute hour day-of-month month day-of-week (0 = Sunday, 1 = Monday)
+    - cron: '0 15 * * 1'
   workflow_dispatch: {}   # lets you manually trigger a run from the Actions tab
 
 jobs:
