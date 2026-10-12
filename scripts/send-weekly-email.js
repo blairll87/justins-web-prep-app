@@ -1,5 +1,5 @@
 /**
- * Sends Web Prep's weekly summary email without a browser.
+ * Sends Web Prep's weekly plan email (Monday mornings) without a browser.
  * Run by a scheduled GitHub Action (see .github/workflows/weekly-email.yml).
  *
  * Requires the FIREBASE_PROJECT_ID environment variable to be set
@@ -51,6 +51,21 @@ function daysUntil(dateStr) {
 function fmtDate(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function localDateStr(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function weekStartOf(date) {
+  const x = new Date(date); x.setHours(0, 0, 0, 0);
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return localDateStr(x);
+}
+function addDaysStr(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() + n); return localDateStr(d);
+}
+function weekRangeLabel(ws) {
+  const f = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return f(new Date(ws + 'T00:00:00')) + ' – ' + f(new Date(addDaysStr(ws, 6) + 'T00:00:00'));
 }
 const catLabel = { school: 'School', testing: 'Testing', recs: 'Rec letters', essays: 'Essays', scholarship: 'Scholarship', custom: 'Other' };
 
@@ -177,18 +192,48 @@ async function main() {
     items.push({ title: `${sc.name} — scholarship due`, category: 'scholarship', date: sc.deadline, notes: sc.amount || '' });
   }
 
-  const dueThisWeek = items
-    .filter(i => { const d = daysUntil(i.date); return d >= 0 && d <= 7; })
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const weeklyTasks = appData?.weeklyTasks || [];
+  const ws = weekStartOf(new Date());
+  const thisWeek = weeklyTasks.filter(t => t.weekStart === ws);
+  // Anything unchecked from an earlier week counts as carried over into this one.
+  const carried = weeklyTasks.filter(t => !t.done && t.weekStart && t.weekStart < ws);
+  const plan = thisWeek.concat(carried.map(t => ({ ...t, carriedFrom: t.carriedFrom || t.weekStart })));
+
+  const lines = [];
+  if (plan.length) {
+    lines.push(`This week's plan (${weekRangeLabel(ws)}):`);
+    plan.filter(t => !t.done).concat(plan.filter(t => t.done)).forEach(t => {
+      lines.push(`${t.done ? '☑' : '☐'} ${t.title}${t.carriedFrom && !t.done ? ' (carried over)' : ''}`);
+    });
+  } else {
+    lines.push(`No plan has been set for this week yet (${weekRangeLabel(ws)}). Open Web Prep and add a few tasks.`);
+  }
 
   const priActions = priorityActions(schools, gettingStarted);
-  const actionsBlock = priActions.length
-    ? 'Focus this week:\n' + priActions.slice(0, 6).map(a => `- ${a.text}`).join('\n')
-    : 'Focus this week: nothing urgent — good pace.';
-  const deadlinesBlock = dueThisWeek.length
-    ? 'Deadlines this week:\n' + dueThisWeek.map(i => `- ${fmtDate(i.date)} — ${i.title} (${catLabel[i.category] || i.category})`).join('\n')
-    : 'Deadlines this week: nothing due.';
-  const summary = `${actionsBlock}\n\n${deadlinesBlock}`;
+  const behind = priActions.filter(a => a.urgency === 'behind');
+  if (plan.length && behind.length) {
+    lines.push('', 'Running behind on:');
+    behind.slice(0, 4).forEach(a => lines.push(`- ${a.text}`));
+  } else if (!plan.length && priActions.length) {
+    lines.push('', 'Ideas to start with:');
+    priActions.slice(0, 4).forEach(a => lines.push(`- ${a.text}`));
+  }
+
+  const upcoming = items
+    .filter(i => daysUntil(i.date) <= 14)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 4);
+  if (upcoming.length) {
+    lines.push('', 'Hard deadlines coming up:');
+    upcoming.forEach(i => lines.push(`- ${fmtDate(i.date)} — ${i.title}${daysUntil(i.date) < 0 ? ' (OVERDUE)' : ''}`));
+  }
+  const cam = appData?.camera || {};
+  const camTotal = (cam.payments || []).reduce((a, p) => a + (Number(p.amount) || 0), 0);
+  const money = n => '$' + (Math.abs(n % 1) > 0.001 ? n.toFixed(2) : String(Math.round(n)));
+  if ((cam.goal > 0) || camTotal > 0) {
+    lines.push('', `${cam.name || 'Camera fund'}: ${money(camTotal)}${cam.goal > 0 ? ' of ' + money(cam.goal) : ''}`);
+  }
+  const summary = lines.join('\n');
 
   console.log(`Sending weekly summary to ${recipients.length} recipient(s):\n${summary}`);
 
