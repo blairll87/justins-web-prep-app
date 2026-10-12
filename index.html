@@ -145,6 +145,32 @@
     border:1px dashed var(--line); border-radius: var(--radius);
   }
 
+  /* camera fund */
+  .fund-top{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .fund-amt{ font-family: var(--font-display); font-size:26px; }
+  .fund-goal{ font-size:13px; color:var(--text-dim); }
+  .fund-track{ height:14px; background: var(--line); border-radius:999px; overflow:hidden; margin:10px 0 6px; }
+  .fund-fill{ height:100%; background: linear-gradient(90deg, var(--red), var(--blue)); border-radius:999px; transition:width .4s; }
+  .pay-pill{ font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:999px; background:#0e2f2a; color:var(--green); }
+  .size-pill{ font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:999px; background: var(--blue-dim); color:#bcd2ff; }
+  .pay-row{ display:flex; justify-content:space-between; gap:10px; font-size:12.5px; padding:6px 0; border-bottom:1px solid var(--line); align-items:center; }
+
+  /* weekly checklist */
+  .week-nav{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .week-nav .week-label{ font-family: var(--font-display); font-size:14px; }
+  .week-nav .week-sub{ font-size:12px; color:var(--text-faint); }
+  .progress-track{ height:8px; background: var(--line); border-radius:999px; overflow:hidden; }
+  .progress-fill{ height:100%; background: var(--green); border-radius:999px; transition: width .3s; }
+  .carry-tag{ font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:999px; background:#3a2f0e; color: var(--amber); }
+  .deadline-strip{ padding:12px 16px; }
+  .deadline-strip h3{ font-size:12px; color:var(--text-dim); margin-bottom:8px; font-weight:700; }
+  .strip-row{ display:flex; gap:10px; align-items:center; font-size:12.5px; padding:3px 0; }
+  .strip-row .strip-date{ color:var(--text-faint); min-width:86px; }
+  .strip-row .strip-soon{ color: var(--amber); font-weight:700; }
+  .strip-row .strip-over{ color: var(--red); font-weight:700; }
+  .strip-more{ font-size:12px; margin-top:6px; }
+  .strip-more a{ color: var(--blue); }
+
   /* week groups */
   .week-group h3{ font-size:13px; color:var(--text-dim); text-transform:none; margin-bottom:10px; font-weight:700; }
   .week-group{ margin-bottom: 26px; }
@@ -441,6 +467,22 @@
         </div>
       </div>
 
+      <div class="card home-panel" id="home-fund-panel" style="margin-bottom:16px;">
+        <div class="home-panel-head">
+          <h3 id="home-fund-title">Camera fund</h3>
+          <button class="btn secondary small" onclick="openCameraModal()">Manage</button>
+        </div>
+        <div id="home-fund"></div>
+      </div>
+
+      <div class="card home-panel" id="home-week-panel" style="margin-bottom:16px;">
+        <div class="home-panel-head">
+          <h3>This week's plan</h3>
+          <button class="btn secondary small" onclick="showView('weekly')">Open</button>
+        </div>
+        <div id="home-week" class="stack"></div>
+      </div>
+
       <div class="card home-panel" id="home-priority-panel" style="margin-bottom:16px;">
         <div class="home-panel-head">
           <h3>Priority actions</h3>
@@ -503,9 +545,9 @@
       <div class="view-head">
         <div>
           <h1>This week</h1>
-          <p>Everything due soon, pulled from every school and tracker so you don't have to go looking for it.</p>
+          <p>Plan the week here (Sunday is a good time). Whatever's on this list goes in Monday's email. Hard deadlines stay in the strip below.</p>
         </div>
-        <button class="btn" onclick="openTaskModal()">+ Add deadline</button>
+        <button class="btn" onclick="openWeeklyModal()">+ Add to this week</button>
       </div>
       <div id="weekly-content" class="stack"></div>
     </section>
@@ -636,6 +678,18 @@
       </div>
       <div class="stack">
         <div class="card">
+          <h2 style="font-family:var(--font-display); font-size:15px; margin-bottom:10px;">Backup</h2>
+          <p style="font-size:12.5px; color:var(--text-dim); line-height:1.5; margin-bottom:12px;">
+            Download a copy of everything (schools, deadlines, weekly plans, activities, scholarships) as a file you can keep. Restoring replaces what's in the app with the backup, for everyone using this link.
+          </p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn small" onclick="downloadBackup()">Download backup</button>
+            <button class="btn secondary small" onclick="document.getElementById('restore-file').click()">Restore from backup</button>
+            <input type="file" id="restore-file" accept=".json,application/json" style="display:none;" onchange="restoreBackup(this)">
+          </div>
+          <div id="backup-status" class="lookup-status" style="margin-top:8px;"></div>
+        </div>
+        <div class="card">
           <h2 style="font-family:var(--font-display); font-size:15px; margin-bottom:10px;">Reset app data</h2>
           <p style="font-size:12.5px; color:var(--text-dim); line-height:1.5; margin-bottom:12px;">
             Clears everything stored on this device/browser (schools, tasks, activities) and reloads with fresh example data. Firebase/EmailJS setup below is kept.
@@ -692,6 +746,50 @@
     <div class="modal-actions">
       <button class="btn secondary" onclick="closeModal('task-modal-bg')">Cancel</button>
       <button class="btn" onclick="saveTask()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- CAMERA FUND MODAL -->
+<div class="modal-bg" id="camera-modal-bg">
+  <div class="modal">
+    <h2>Camera fund</h2>
+    <div class="field"><label>What's he saving for?</label><input id="cam-name" placeholder="e.g. Sony ZV-E10 camera"></div>
+    <div class="field"><label>Goal amount ($)</label><input type="number" min="0" step="1" id="cam-goal"></div>
+    <div class="field"><label>What each task size pays ($)</label>
+      <div style="display:flex; gap:8px;">
+        <input type="number" min="0" step="0.25" id="cam-small" placeholder="Small">
+        <input type="number" min="0" step="0.25" id="cam-medium" placeholder="Medium">
+        <input type="number" min="0" step="0.25" id="cam-big" placeholder="Big">
+      </div>
+      <div style="font-size:11.5px; color:var(--text-faint); margin-top:4px;">Small · Medium · Big. Changing these only affects tasks paid from now on.</div>
+    </div>
+    <div class="field"><label>Add money manually (bonus, gift, etc.)</label>
+      <div style="display:flex; gap:8px;">
+        <input type="number" min="0" step="0.25" id="cam-bonus-amt" placeholder="$ amount" style="max-width:110px;">
+        <input id="cam-bonus-note" placeholder="Note (optional)">
+        <button class="btn secondary small" onclick="addManualPayment()">Add</button>
+      </div>
+    </div>
+    <div class="field"><label>Payment history</label><div id="cam-history" style="max-height:180px; overflow:auto;"></div></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeModal('camera-modal-bg')">Close</button>
+      <button class="btn" onclick="saveCameraSettings()">Save settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- WEEKLY TASK MODAL -->
+<div class="modal-bg" id="weekly-modal-bg">
+  <div class="modal">
+    <h2 id="weekly-modal-title">Add to this week</h2>
+    <div class="field"><label>What do you want to get done?</label><input id="weekly-title" placeholder="e.g. Draft 3 personal statement topic ideas"></div>
+    <div class="field"><label>Task size (what it pays)</label><select id="weekly-size"></select></div>
+    <div class="field"><label>Week</label><select id="weekly-week"></select></div>
+    <div class="field"><label>Notes (optional)</label><textarea id="weekly-notes" placeholder="Any extra detail"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeModal('weekly-modal-bg')">Cancel</button>
+      <button class="btn" onclick="saveWeeklyTask()">Save</button>
     </div>
   </div>
 </div>
@@ -799,7 +897,7 @@
    to know to hard-refresh manually.
    ========================================================= */
 (function(){
-  const APP_VERSION = '2026-09-05-2';
+  const APP_VERSION = '2026-10-11-3';
   try{
     const params = new URLSearchParams(location.search);
     if(params.get('v') === APP_VERSION) return; // already reloaded fresh
@@ -828,7 +926,7 @@ let cloudSynced = false;  // true once we've confirmed a Firestore connection
 function loadData(){
   const raw = localStorage.getItem(STORAGE_KEY);
   if(raw) return JSON.parse(raw);
-  return { tasks: [], schools: [], activities: [], scholarships: [] };
+  return { tasks: [], schools: [], activities: [], scholarships: [], weeklyTasks: [] };
 }
 /* saveData: writes to localStorage immediately (fast, offline-safe cache),
    and if Firebase is connected, also writes to Firestore so every device
@@ -848,7 +946,36 @@ function saveConfig(){ localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
 
 let state = loadData();
 state.scholarships = state.scholarships || [];
+state.weeklyTasks = state.weeklyTasks || [];
+const DEFAULT_CAMERA = { name:'Camera fund', goal:0, tiers:{ small:1, medium:2, big:5 }, payments:[] };
+function ensureCamera(){
+  const c = state.camera || {};
+  state.camera = {
+    name: c.name || DEFAULT_CAMERA.name,
+    goal: Number(c.goal)||0,
+    tiers: { small: c.tiers&&c.tiers.small!=null ? Number(c.tiers.small) : 1, medium: c.tiers&&c.tiers.medium!=null ? Number(c.tiers.medium) : 2, big: c.tiers&&c.tiers.big!=null ? Number(c.tiers.big) : 5 },
+    payments: c.payments || []
+  };
+}
+ensureCamera();
 let config = loadConfig();
+
+/* ---------- Week helpers (weeks run Monday–Sunday, local time) ---------- */
+function localDateStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function weekStartOf(date){ const x=new Date(date); x.setHours(0,0,0,0); x.setDate(x.getDate()-((x.getDay()+6)%7)); return localDateStr(x); }
+function addDaysStr(dateStr, n){ const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n); return localDateStr(d); }
+/* Anything unchecked from a past week slides forward into the current week,
+   flagged as "carried over", so nothing silently disappears. */
+function rolloverWeeklyTasks(){
+  const cur = weekStartOf(new Date());
+  let changed = false;
+  (state.weeklyTasks||[]).forEach(t=>{
+    if(!t.done && t.weekStart < cur){ t.carriedFrom = t.carriedFrom || t.weekStart; t.weekStart = cur; changed = true; }
+  });
+  if(changed) saveData();
+  return changed;
+}
+rolloverWeeklyTasks();
 
 const GETTING_STARTED_STAGES = ['Not started','In progress','Done','Not needed'];
 const DEFAULT_GETTING_STARTED = [
@@ -1018,6 +1145,18 @@ function renderHome(){
     </div>
   `;
 
+  document.getElementById('home-fund').innerHTML = renderFundHtml();
+  const wkTasks = (state.weeklyTasks||[]).filter(t=>t.weekStart===weekStartOf(new Date()));
+  const wkDone = wkTasks.filter(t=>t.done).length;
+  const wkOpen = wkTasks.filter(t=>!t.done);
+  document.getElementById('home-week').innerHTML = wkTasks.length
+    ? `<div class="week-sub" style="font-size:12px;color:var(--text-dim);">${wkDone} of ${wkTasks.length} done</div>
+       <div class="progress-track"><div class="progress-fill" style="width:${Math.round(wkDone/wkTasks.length*100)}%"></div></div>`
+      + wkOpen.slice(0,4).map(t=>`<div class="task-row"><button class="check" onclick="toggleWeeklyTask('${t.id}')"></button><div class="task-body"><div class="task-title">${escapeHtml(t.title)}</div></div></div>`).join('')
+      + (wkOpen.length>4 ? `<div style="font-size:12px;color:var(--text-faint);text-align:center;">+${wkOpen.length-4} more</div>`:'')
+      + (!wkOpen.length ? `<div style="font-size:13px;color:var(--green);">All done for the week. Nice.</div>`:'')
+    : `<div class="empty" style="padding:20px;">Nothing planned yet. <a href="#" onclick="event.preventDefault(); showView('weekly');" style="color:var(--blue);">Plan the week &rarr;</a></div>`;
+
   const allPriActions = priorityActions();
   const priActions = allPriActions.slice(0,5);
   const overflow = allPriActions.length - priActions.length;
@@ -1053,29 +1192,204 @@ function renderHome(){
 /* =========================================================
    WEEKLY VIEW
    ========================================================= */
+let weeklyOffset = 0; // 0 = this week, -1 = last week, +1 = next week
+function weekRangeLabel(ws){
+  const st=new Date(ws+'T00:00:00'), en=new Date(addDaysStr(ws,6)+'T00:00:00');
+  const f=d=>d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  return f(st)+' – '+f(en);
+}
+const SIZE_LABEL = { small:'Small', medium:'Medium', big:'Big' };
+function fmtMoney(n){ n = Number(n)||0; return '$' + (Math.abs(n%1)>0.001 ? n.toFixed(2) : String(Math.round(n))); }
+function taskPayAmount(t){ return state.camera.tiers[t.size||'small'] || 0; }
+function fundTotal(){ return (state.camera.payments||[]).reduce((a,p)=>a+(Number(p.amount)||0),0); }
+function weeklyTaskRowHtml(t){
+  const amt = taskPayAmount(t);
+  let payUi = '';
+  if(t.paid) payUi = `<span class="pay-pill">${fmtMoney(t.paidAmount)} paid</span>`;
+  else if(t.done) payUi = `<button class="btn small" onclick="payWeeklyTask('${t.id}')">Pay ${fmtMoney(amt)}</button>`;
+  return `
+  <div class="task-row ${t.done?'done':''}" ${t.done&&!t.paid?'style="opacity:1;"':''}>
+    <button class="check" onclick="toggleWeeklyTask('${t.id}')">${t.done?'✓':''}</button>
+    <div class="task-body">
+      <div class="task-title">${escapeHtml(t.title)}</div>
+      <div class="task-meta"><span class="size-pill">${SIZE_LABEL[t.size||'small']} · ${fmtMoney(t.paid? t.paidAmount : amt)}</span>${(t.carriedFrom && !t.done)? `<span class="carry-tag">carried over</span>`:''}${t.notes? `<span>${escapeHtml(t.notes)}</span>`:''}</div>
+    </div>
+    ${payUi}
+    <div class="row-actions">
+      <button class="icon-btn" title="Edit" onclick="editWeeklyTask('${t.id}')">&#9998;</button>
+      <button class="icon-btn" title="Delete" onclick="deleteWeeklyTask('${t.id}')">&times;</button>
+    </div>
+  </div>`;
+}
+function payWeeklyTask(id){
+  const t = state.weeklyTasks.find(t=>t.id===id);
+  if(!t || !t.done || t.paid) return;
+  const amt = taskPayAmount(t);
+  if(!confirm('Pay ' + fmtMoney(amt) + ' into the ' + state.camera.name + ' for "' + t.title + '"?')) return;
+  state.camera.payments.push({ id: uid(), date: localDateStr(new Date()), amount: amt, label: t.title, taskId: t.id });
+  t.paid = true; t.paidAmount = amt;
+  saveData(); renderWeekly(); renderHome();
+}
+function paySizeOptions(selected){
+  return ['small','medium','big'].map(k=>`<option value="${k}" ${k===selected?'selected':''}>${SIZE_LABEL[k]} (${fmtMoney(state.camera.tiers[k])})</option>`).join('');
+}
+function renderFundHtml(){
+  const c = state.camera, total = fundTotal();
+  document.getElementById('home-fund-title').textContent = c.name;
+  const pct = c.goal>0 ? Math.min(100, Math.round(total/c.goal*100)) : 0;
+  const unpaid = (state.weeklyTasks||[]).filter(t=>t.done && !t.paid).length;
+  const recent = (c.payments||[]).slice(-3).reverse();
+  return `<div class="fund-top"><div class="fund-amt">${fmtMoney(total)}</div>
+      <div class="fund-goal">${c.goal>0 ? `of ${fmtMoney(c.goal)} goal · ${pct}%` : `<a href="#" onclick="event.preventDefault(); openCameraModal();" style="color:var(--blue);">Set a goal amount &rarr;</a>`}</div></div>`
+    + (c.goal>0 ? `<div class="fund-track"><div class="fund-fill" style="width:${pct}%"></div></div>
+      <div class="fund-goal">${total>=c.goal ? 'Goal reached! 🎉' : fmtMoney(c.goal-total)+' to go'}</div>` : '')
+    + (unpaid ? `<div style="margin-top:10px; font-size:12.5px; color:var(--amber);">${unpaid} finished task${unpaid===1?'':'s'} waiting to be paid &mdash; <a href="#" onclick="event.preventDefault(); weeklyOffset=0; showView('weekly');" style="color:var(--blue);">go pay</a></div>` : '')
+    + (recent.length ? `<div style="margin-top:10px;">${recent.map(p=>`<div class="pay-row"><span>${escapeHtml(p.label||'Payment')}</span><span style="color:var(--green);">+${fmtMoney(p.amount)}</span></div>`).join('')}</div>` : '');
+}
+let editingCameraOpen = false;
+function openCameraModal(){
+  const c = state.camera;
+  document.getElementById('cam-name').value = c.name;
+  document.getElementById('cam-goal').value = c.goal||'';
+  document.getElementById('cam-small').value = c.tiers.small;
+  document.getElementById('cam-medium').value = c.tiers.medium;
+  document.getElementById('cam-big').value = c.tiers.big;
+  document.getElementById('cam-bonus-amt').value = ''; document.getElementById('cam-bonus-note').value = '';
+  renderCameraHistory();
+  document.getElementById('camera-modal-bg').classList.add('active');
+}
+function renderCameraHistory(){
+  const pays = (state.camera.payments||[]).slice().reverse();
+  document.getElementById('cam-history').innerHTML = pays.length
+    ? pays.map(p=>`<div class="pay-row"><span>${p.date} · ${escapeHtml(p.label||'Payment')}</span><span><span style="color:var(--green);">+${fmtMoney(p.amount)}</span> <button class="icon-btn" style="display:inline-flex; margin-left:6px;" title="Undo this payment" onclick="removePayment('${p.id}')">&times;</button></span></div>`).join('')
+    : `<div style="font-size:12.5px; color:var(--text-faint);">No payments yet.</div>`;
+}
+function saveCameraSettings(){
+  const num = id => Math.max(0, parseFloat(document.getElementById(id).value)||0);
+  state.camera.name = document.getElementById('cam-name').value.trim() || 'Camera fund';
+  state.camera.goal = num('cam-goal');
+  state.camera.tiers = { small:num('cam-small'), medium:num('cam-medium'), big:num('cam-big') };
+  saveData(); closeModal('camera-modal-bg'); renderHome(); renderWeekly();
+}
+function addManualPayment(){
+  const amt = parseFloat(document.getElementById('cam-bonus-amt').value);
+  if(!(amt>0)){ alert('Enter an amount.'); return; }
+  const note = document.getElementById('cam-bonus-note').value.trim() || 'Bonus';
+  state.camera.payments.push({ id: uid(), date: localDateStr(new Date()), amount: amt, label: note });
+  document.getElementById('cam-bonus-amt').value=''; document.getElementById('cam-bonus-note').value='';
+  saveData(); renderCameraHistory(); renderHome();
+}
+function removePayment(id){
+  const p = state.camera.payments.find(p=>p.id===id);
+  if(!p || !confirm('Undo this ' + fmtMoney(p.amount) + ' payment?')) return;
+  state.camera.payments = state.camera.payments.filter(x=>x.id!==id);
+  if(p.taskId){ const t = state.weeklyTasks.find(t=>t.id===p.taskId); if(t){ t.paid=false; delete t.paidAmount; } }
+  saveData(); renderCameraHistory(); renderHome(); renderWeekly();
+}
 function renderWeekly(){
   const el = document.getElementById('weekly-content');
-  const items = allItems().filter(i=>!i.done);
-  const overdue = items.filter(i=> daysUntil(i.date) < 0);
-  const thisWeek = items.filter(i=> daysUntil(i.date) >=0 && daysUntil(i.date) <=7);
-  const later = items.filter(i=> daysUntil(i.date) > 7 && daysUntil(i.date) <=21);
+  if(!el) return;
+  const curWeek = weekStartOf(new Date());
+  const ws = addDaysStr(curWeek, weeklyOffset*7);
+  const tasks = (state.weeklyTasks||[]).filter(t=>t.weekStart===ws);
+  const open = tasks.filter(t=>!t.done), done = tasks.filter(t=>t.done);
+  const pct = tasks.length ? Math.round(done.length/tasks.length*100) : 0;
+  const heading = weeklyOffset===0 ? 'This week' : weeklyOffset===1 ? 'Next week' : weeklyOffset===-1 ? 'Last week' : 'Week of';
 
-  let html = '';
-  const priActions = priorityActions();
-  if(priActions.length){
-    html += `<div class="week-group"><h3>Focus this week</h3>${priActions.slice(0,6).map(a=>`
-      <div class="task-row">
-        <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${urgencyBadgeLabel(a.urgency)}</span>
-        <div class="task-body"><div class="task-title">${escapeHtml(a.text)} ${a.link? `<a href="#" onclick="event.preventDefault(); showView('${a.link}');" style="color:var(--blue); font-size:12px; margin-left:6px;">Go &rarr;</a>` : ''}</div></div>
-      </div>`).join('')}</div>`;
+  let html = `
+  <div class="week-nav">
+    <button class="btn secondary small" onclick="changeWeek(-1)">&larr;</button>
+    <div><div class="week-label">${heading} · ${weekRangeLabel(ws)}</div>
+    <div class="week-sub">${tasks.length ? `${done.length} of ${tasks.length} done` : 'Nothing planned yet'}</div></div>
+    <button class="btn secondary small" onclick="changeWeek(1)">&rarr;</button>
+    ${weeklyOffset!==0 ? `<button class="btn secondary small" onclick="weeklyOffset=0; renderWeekly();">Back to this week</button>`:''}
+  </div>`;
+  if(tasks.length) html += `<div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>`;
+
+  html += `<div class="week-group"><div class="stack" style="gap:8px;">`
+    + (open.length || done.length
+      ? open.map(weeklyTaskRowHtml).join('') + done.map(weeklyTaskRowHtml).join('')
+      : `<div class="empty">No plan for this week yet. Add what you want to get done, or pick from the suggestions below.</div>`)
+    + `</div></div>`;
+
+  // Compact deadline strip — hard deadlines only, kept small on purpose
+  const dl = allItems().filter(i=>!i.done && daysUntil(i.date) <= 14);
+  if(dl.length){
+    const shown = dl.slice(0,4), more = dl.length - shown.length;
+    html += `<div class="card deadline-strip"><h3>Hard deadlines · next 2 weeks</h3>
+      ${shown.map(i=>{ const d=daysUntil(i.date);
+        const tag = d<0 ? `<span class="strip-over">overdue</span>` : d<=3 ? `<span class="strip-soon">${d===0?'today':d+'d'}</span>` : `<span style="color:var(--text-faint)">${d}d</span>`;
+        return `<div class="strip-row"><span class="strip-date">${fmtDate(i.date)}</span><span style="flex:1;">${escapeHtml(i.title)}</span>${tag}</div>`; }).join('')}
+      <div class="strip-more">${more>0? `+${more} more · `:''}<a href="#" onclick="event.preventDefault(); showView('monthly');">See all in Monthly &rarr;</a></div>
+    </div>`;
   }
-  html += renderGroup('Overdue', overdue, true);
-  html += renderGroup('Due this week', thisWeek, false);
-  html += renderGroup('Coming up (next 3 weeks)', later, false);
-  if(!overdue.length && !thisWeek.length && !later.length && !priActions.length){
-    html += `<div class="empty">Nothing due in the next few weeks. Add a school or deadline to get started.</div>`;
+
+  // Suggestions (only for this/next week) — one tap to add to the plan
+  if(weeklyOffset>=0){
+    const existing = new Set((state.weeklyTasks||[]).map(t=>t.title.toLowerCase()));
+    const sugg = priorityActions().filter(a=>!existing.has(a.text.toLowerCase())).slice(0,5);
+    if(sugg.length){
+      html += `<div class="week-group" style="margin-top:6px;"><h3>Suggested for ${weeklyOffset===0?'this week':'next week'}</h3><div class="stack" style="gap:8px;">${sugg.map((a,i)=>`
+        <div class="task-row">
+          <span class="pacing-badge ${a.urgency}" style="margin-top:2px;">${urgencyBadgeLabel(a.urgency)}</span>
+          <div class="task-body"><div class="task-title">${escapeHtml(a.text)}</div></div>
+          <button class="btn secondary small" onclick="addSuggestionToWeek(${i})">+ Add</button>
+        </div>`).join('')}</div></div>`;
+      window._weeklySuggestions = sugg;
+    }
   }
   el.innerHTML = html;
+}
+function changeWeek(n){ weeklyOffset = Math.max(-4, Math.min(8, weeklyOffset+n)); renderWeekly(); }
+function addSuggestionToWeek(i){
+  const a = (window._weeklySuggestions||[])[i]; if(!a) return;
+  const ws = addDaysStr(weekStartOf(new Date()), weeklyOffset*7);
+  state.weeklyTasks.push({ id: uid(), title: a.text, notes:'', size:'small', weekStart: ws, done:false });
+  saveData(); renderWeekly(); renderHome();
+}
+function toggleWeeklyTask(id){
+  const t = state.weeklyTasks.find(t=>t.id===id);
+  if(t && t.paid){ alert('This one is already paid. To undo it, remove the payment under Camera fund → Manage.'); return; }
+  if(t){ t.done = !t.done; if(t.done) delete t.carriedFrom; }
+  saveData(); renderWeekly(); renderHome();
+}
+function deleteWeeklyTask(id){
+  if(!confirm('Remove this from the plan?' + ((state.weeklyTasks.find(t=>t.id===id)||{}).paid ? ' (The payment stays in the fund.)' : ''))) return;
+  state.weeklyTasks = state.weeklyTasks.filter(t=>t.id!==id);
+  saveData(); renderWeekly(); renderHome();
+}
+let editingWeeklyId = null;
+function openWeeklyModal(task){
+  editingWeeklyId = task ? task.id : null;
+  document.getElementById('weekly-modal-title').textContent = task ? 'Edit task' : (weeklyOffset>0 ? 'Add to next week' : 'Add to this week');
+  document.getElementById('weekly-title').value = task ? task.title : '';
+  document.getElementById('weekly-notes').value = task ? (task.notes||'') : '';
+  document.getElementById('weekly-size').innerHTML = paySizeOptions(task ? (task.size||'small') : 'small');
+  const cur = weekStartOf(new Date());
+  const target = task ? task.weekStart : addDaysStr(cur, Math.max(0,weeklyOffset)*7);
+  const opts = [0,1,2,3].map(n=> addDaysStr(cur,n*7));
+  if(!opts.includes(target)) opts.unshift(target);
+  document.getElementById('weekly-week').innerHTML = opts.map(w=>{
+    const n = Math.round((new Date(w+'T00:00:00')-new Date(cur+'T00:00:00'))/604800000);
+    const name = n===0?'This week':n===1?'Next week':n===-1?'Last week':'Week of';
+    return `<option value="${w}" ${w===target?'selected':''}>${name} (${weekRangeLabel(w)})</option>`;
+  }).join('');
+  document.getElementById('weekly-modal-bg').classList.add('active');
+}
+function editWeeklyTask(id){ const t=state.weeklyTasks.find(t=>t.id===id); if(t) openWeeklyModal(t); }
+function saveWeeklyTask(){
+  const title = document.getElementById('weekly-title').value.trim();
+  const notes = document.getElementById('weekly-notes').value.trim();
+  const weekStart = document.getElementById('weekly-week').value;
+  const size = document.getElementById('weekly-size').value;
+  if(!title){ alert('Add a task first.'); return; }
+  if(editingWeeklyId){
+    const t = state.weeklyTasks.find(t=>t.id===editingWeeklyId);
+    if(t){ t.title=title; t.notes=notes; if(!t.paid) t.size=size; if(t.weekStart!==weekStart){ t.weekStart=weekStart; delete t.carriedFrom; } }
+  } else {
+    state.weeklyTasks.push({ id: uid(), title, notes, size, weekStart, done:false });
+  }
+  saveData(); closeModal('weekly-modal-bg'); renderWeekly(); renderHome();
 }
 function renderGroup(label, items, isOverdue){
   if(!items.length) return '';
@@ -2251,6 +2565,9 @@ function attachCloudSync(){
       state.schools = state.schools || [];
       state.activities = state.activities || [];
       state.scholarships = state.scholarships || [];
+      state.weeklyTasks = state.weeklyTasks || [];
+      ensureCamera();
+      rolloverWeeklyTasks();
       if(!state.gettingStarted){
         state.gettingStarted = DEFAULT_GETTING_STARTED.map(d => ({ id: uid(), label:d.label, link:d.link||null, stage: 0 }));
       }
@@ -2384,17 +2701,40 @@ function loadSettingsIntoInputs(){
 
 /* Weekly email summary — also called by the scheduled GitHub Action
    (via a direct EmailJS API call, not this function) once configured. */
+function buildWeeklySummary(){
+  const ws = weekStartOf(new Date());
+  const tasks = (state.weeklyTasks||[]).filter(t=>t.weekStart===ws);
+  const lines = [];
+  if(tasks.length){
+    lines.push(`This week's plan (${weekRangeLabel(ws)}):`);
+    tasks.filter(t=>!t.done).concat(tasks.filter(t=>t.done)).forEach(t=>{
+      lines.push(`${t.done?'☑':'☐'} ${t.title}${t.carriedFrom && !t.done ? ' (carried over)':''}`);
+    });
+  } else {
+    lines.push(`No plan has been set for this week yet (${weekRangeLabel(ws)}). Open Web Prep and add a few tasks.`);
+  }
+  const pri = priorityActions();
+  const behind = pri.filter(a=>a.urgency==='behind');
+  if(tasks.length && behind.length){
+    lines.push('', 'Running behind on:');
+    behind.slice(0,4).forEach(a=>lines.push(`- ${a.text}`));
+  } else if(!tasks.length && pri.length){
+    lines.push('', 'Ideas to start with:');
+    pri.slice(0,4).forEach(a=>lines.push(`- ${a.text}`));
+  }
+  const dl = allItems().filter(i=>!i.done && daysUntil(i.date)<=14).slice(0,4);
+  if(dl.length){
+    lines.push('', 'Hard deadlines coming up:');
+    dl.forEach(i=>lines.push(`- ${fmtDate(i.date)} — ${i.title}${daysUntil(i.date)<0?' (OVERDUE)':''}`));
+  }
+  if(state.camera.goal>0 || fundTotal()>0){
+    lines.push('', state.camera.name + ': ' + fmtMoney(fundTotal()) + (state.camera.goal>0 ? ' of ' + fmtMoney(state.camera.goal) : ''));
+  }
+  return lines.join('\n');
+}
 async function sendWeeklyEmail(){
   if(!config.emailjs || !config.emailjs.service) return { ok:false, reason:'EmailJS not configured' };
-  const priActions = priorityActions();
-  const actionsBlock = priActions.length
-    ? 'Focus this week:\n' + priActions.slice(0,6).map(a=> `- ${a.text}`).join('\n')
-    : 'Focus this week: nothing urgent — good pace.';
-  const items = allItems().filter(i=>!i.done && daysUntil(i.date) >=0 && daysUntil(i.date) <=7);
-  const deadlinesBlock = items.length
-    ? 'Deadlines this week:\n' + items.map(i=> `- ${fmtDate(i.date)} — ${i.title} (${catLabel[i.category]||i.category})`).join('\n')
-    : 'Deadlines this week: nothing due.';
-  const summary = `${actionsBlock}\n\n${deadlinesBlock}`;
+  const summary = buildWeeklySummary();
   const recipients = (config.emailjs.recipients||'').split(',').map(s=>s.trim()).filter(Boolean);
   if(!recipients.length) return { ok:false, reason:'No recipients set' };
   let sent = 0, failed = 0;
@@ -2427,6 +2767,43 @@ async function sendTestEmail(){
   }
 }
 
+function downloadBackup(){
+  const st = document.getElementById('backup-status');
+  try{
+    const blob = new Blob([JSON.stringify({ app:'webprep', exportedAt:new Date().toISOString(), data:state }, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'web-prep-backup-' + localDateStr(new Date()) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+    st.textContent = 'Backup downloaded. Keep it somewhere safe.'; st.className = 'lookup-status success';
+  }catch(e){ st.textContent = 'Could not create backup: ' + e.message; st.className = 'lookup-status error'; }
+}
+function restoreBackup(input){
+  const st = document.getElementById('backup-status');
+  const file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const parsed = JSON.parse(reader.result);
+      const data = parsed && parsed.data;
+      if(!parsed || parsed.app !== 'webprep' || !data || !Array.isArray(data.schools) || !Array.isArray(data.tasks)) throw new Error('That does not look like a Web Prep backup file.');
+      const when = parsed.exportedAt ? new Date(parsed.exportedAt).toLocaleString() : 'unknown date';
+      if(!confirm('Replace everything in the app with the backup from ' + when + '? This changes the data for everyone using this link. Download a fresh backup first if you are unsure.')) return;
+      state = data;
+      state.tasks = state.tasks||[]; state.schools = state.schools||[]; state.activities = state.activities||[];
+      state.scholarships = state.scholarships||[]; state.weeklyTasks = state.weeklyTasks||[];
+      ensureCamera();
+      saveData();
+      st.textContent = 'Restored from backup.'; st.className = 'lookup-status success';
+      refreshCurrentView(); renderHome();
+    }catch(e){ st.textContent = 'Restore failed: ' + e.message; st.className = 'lookup-status error'; }
+  };
+  reader.readAsText(file);
+}
+
 function resetAppData(){
   const msg = cloudDocRef
     ? 'This clears all schools, tasks, and activities for EVERYONE using this link (Justin, Mom, anyone else) since data is now shared through Firebase. Continue?'
@@ -2434,7 +2811,7 @@ function resetAppData(){
   if(!confirm(msg)) return;
   localStorage.removeItem(STORAGE_KEY);
   if(cloudDocRef){
-    cloudDocRef.set({ tasks:[], schools:[], activities:[] }).finally(()=> location.reload());
+    cloudDocRef.set({ tasks:[], schools:[], activities:[], scholarships:[], weeklyTasks:[], camera:DEFAULT_CAMERA }).finally(()=> location.reload());
   } else {
     location.reload();
   }
