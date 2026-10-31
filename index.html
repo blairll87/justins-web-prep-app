@@ -263,6 +263,10 @@
   .cal-cell .cal-item.essays{ border-color: var(--green); }
   .cal-cell .cal-item.scholarship{ border-color:#f2b39a; }
   .cal-cell .cal-item.custom{ border-color: var(--red); }
+  .cal-cell .cal-item.cal-later{ opacity:0.45; font-style:italic; }
+  .school-card.deferred{ opacity:0.85; border-style:dashed; }
+  .later-head{ font-family: var(--font-display); font-size:13px; color:var(--text-dim); margin:22px 0 4px; }
+  .later-tag{ font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:999px; background:#2a2540; color:#b9b0d8; margin-left:8px; }
   .cal-cell .cal-item.cal-target{
     border-left-style: dashed; opacity:0.75; background: transparent; border-width:1px 1px 1px 3px; border-style: dashed;
   }
@@ -807,7 +811,15 @@
     <div class="field"><label>Application type</label>
       <select id="school-type"><option>Early Action</option><option>Early Decision</option><option>Regular Decision</option><option>Rolling</option></select>
     </div>
-    <div class="field"><label>Deadline</label><input type="date" id="school-deadline"></div>
+    <div class="field"><label>Deadline <span id="school-deadline-opt" style="color:var(--text-faint); font-weight:400; display:none;">(optional while applying later)</span></label><input type="date" id="school-deadline"></div>
+    <div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="school-deferred" onchange="toggleDeferFields()" style="width:auto;"> Applying later (e.g. needs a portfolio)</label>
+      <div id="school-defer-fields" style="display:none; margin-top:8px;">
+        <input id="school-defer-reason" placeholder="Reason (e.g. Needs portfolio)" style="margin-bottom:8px;">
+        <label style="font-size:12px; color:var(--text-dim);">Pick this back up on (optional)</label>
+        <input type="date" id="school-resume-on">
+        <div style="font-size:11.5px; color:var(--text-faint); margin-top:4px;">On that date the school returns to Active on its own. You can also bring it back anytime with the "Make active now" button.</div>
+      </div>
+    </div>
     <div class="field"><label>Notes / requirements</label><textarea id="school-notes" placeholder="Supplemental essays, test policy, etc."></textarea></div>
     <div class="modal-actions">
       <button class="btn secondary" onclick="closeModal('school-modal-bg')">Cancel</button>
@@ -899,7 +911,7 @@
    to know to hard-refresh manually.
    ========================================================= */
 (function(){
-  const APP_VERSION = '2026-10-31-1';
+  const APP_VERSION = '2026-10-31-2';
   try{
     const params = new URLSearchParams(location.search);
     if(params.get('v') === APP_VERSION) return; // already reloaded fresh
@@ -978,6 +990,7 @@ function rolloverWeeklyTasks(){
   return changed;
 }
 rolloverWeeklyTasks();
+autoResumeSchools();
 
 const GETTING_STARTED_STAGES = ['Not started','In progress','Done','Not needed'];
 const DEFAULT_GETTING_STARTED = [
@@ -1068,7 +1081,7 @@ function allItems(){
     items.push({
       id: 's-'+s.id, title: s.name + ' — application due', category:'school',
       date: s.deadline, notes: s.type + (s.notes? ' · '+s.notes : ''), done: s.submitted || false,
-      schoolId: s.id
+      schoolId: s.id, deferred: !!s.deferred
     });
   });
   (state.scholarships||[]).forEach(sc=>{
@@ -1079,6 +1092,18 @@ function allItems(){
     });
   });
   return items.filter(i=>i.date).sort((a,b)=> a.date.localeCompare(b.date));
+}
+/* ---------- "Applying later" (deferred) schools ---------- */
+function activeItems(){ return allItems().filter(i=>!i.deferred); }
+/* A deferred school returns to Active by itself once its pick-up date arrives. */
+function autoResumeSchools(){
+  const today = localDateStr(new Date());
+  let changed = false;
+  (state.schools||[]).forEach(s=>{
+    if(s.deferred && s.resumeOn && s.resumeOn <= today){ s.deferred = false; s.resumedOn = today; changed = true; }
+  });
+  if(changed) saveData();
+  return changed;
 }
 function daysUntil(dateStr){
   const d = new Date(dateStr+'T00:00:00');
@@ -1116,11 +1141,12 @@ function renderHome(){
   if(discoverWrap) discoverWrap.style.display = state.schools.length ? 'none' : 'block';
   updateGettingStartedBannerVisibility();
 
-  const items = allItems();
+  const items = activeItems();
   const open = items.filter(i=>!i.done);
   const overdueCount = open.filter(i=> daysUntil(i.date) < 0).length;
   const weekCount = open.filter(i=> daysUntil(i.date) >=0 && daysUntil(i.date) <=7).length;
-  const schoolCount = state.schools.length;
+  const schoolCount = state.schools.filter(s=>!s.deferred).length;
+  const laterCount = state.schools.filter(s=>s.deferred).length;
   let nextDeadlineLabel = '—';
   const upcoming = open.filter(i=> daysUntil(i.date) >= 0).sort((a,b)=> a.date.localeCompare(b.date));
   if(upcoming.length){
@@ -1143,7 +1169,7 @@ function renderHome(){
     </div>
     <div class="stat-card accent-green">
       <div class="stat-num">${schoolCount}</div>
-      <div class="stat-label">Schools tracked</div>
+      <div class="stat-label">Schools tracked${laterCount? ` <span style="color:var(--text-faint);">· +${laterCount} later</span>` : ''}</div>
     </div>
   `;
 
@@ -1178,16 +1204,19 @@ function renderHome(){
     : `<div class="empty">Nothing on the horizon — add a deadline to start tracking.</div>`;
 
   const schoolsEl = document.getElementById('home-schools');
+  const activeSchools = sortedSchools().filter(s=>!s.deferred);
+  const laterSchools = sortedSchools().filter(s=>s.deferred);
   schoolsEl.innerHTML = state.schools.length
-    ? sortedSchools().map(raw=>{
+    ? activeSchools.map(raw=>{
         const s = migrateSchool(raw);
         const pct = schoolCompletionPct(s);
-        const d = daysUntil(s.deadline);
+        const d = s.deadline ? daysUntil(s.deadline) : null;
         return `<div class="home-school-row">
           <span>${escapeHtml(s.name)}</span>
-          <span style="color:var(--text-dim);">${pct}% · ${d>=0? d+'d left' : 'overdue'}</span>
+          <span style="color:var(--text-dim);">${pct}% · ${d===null? 'no deadline yet' : d>=0? d+'d left' : 'overdue'}</span>
         </div>`;
       }).join('')
+      + (laterSchools.length ? `<div style="font-size:12px; color:var(--text-faint); margin-top:8px;">Applying later: ${laterSchools.map(x=>escapeHtml(x.name)).join(', ')}</div>` : '')
     : `<div class="empty">No schools yet.</div>`;
 }
 
@@ -1316,7 +1345,7 @@ function renderWeekly(){
     + `</div></div>`;
 
   // Compact deadline strip — hard deadlines only, kept small on purpose
-  const dl = allItems().filter(i=>!i.done && daysUntil(i.date) <= 14);
+  const dl = activeItems().filter(i=>!i.done && daysUntil(i.date) <= 14);
   if(dl.length){
     const shown = dl.slice(0,4), more = dl.length - shown.length;
     html += `<div class="card deadline-strip"><h3>Hard deadlines · next 2 weeks</h3>
@@ -1507,7 +1536,7 @@ function pacingTargets(){
   const today = new Date(); today.setHours(0,0,0,0);
   state.schools.forEach(raw=>{
     const s = migrateSchool(raw);
-    if(s.submitted || !s.deadline) return;
+    if(s.submitted || s.deferred || !s.deadline) return;
     const deadlineDate = new Date(s.deadline+'T00:00:00');
 
     Object.keys(STAGE_SETS).forEach(key=>{
@@ -1589,7 +1618,7 @@ function renderMonthly(){
     const isToday = dateStr === todayStr;
     html += `<div class="cal-cell ${isToday?'today':''}">
       <div class="daynum">${day}</div>
-      ${dayItems.map(i=>`<div class="cal-item ${i.category}" title="${escapeHtml(i.title)}">${escapeHtml(i.title)}</div>`).join('')}
+      ${dayItems.map(i=>`<div class="cal-item ${i.category} ${i.deferred?'cal-later':''}" title="${escapeHtml(i.title)}${i.deferred?' (applying later)':''}">${escapeHtml(i.title)}</div>`).join('')}
       ${dayTargets.map(t=>`<div class="cal-item cal-target ${t.category}" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>`).join('')}
     </div>`;
   }
@@ -1619,7 +1648,7 @@ function renderTotal(){
   let rows = items.map(i=>`
     <tr>
       <td><button class="check" style="margin:0;" onclick="toggleDone('${i.id}')">${i.done?'✓':''}</button></td>
-      <td>${escapeHtml(i.title)}</td>
+      <td>${escapeHtml(i.title)}${i.deferred? '<span class="later-tag">applying later</span>':''}</td>
       <td><span class="pill ${i.category}">${catLabel[i.category]||i.category}</span></td>
       <td>${fmtDate(i.date)}</td>
       <td style="color:var(--text-dim);">${escapeHtml(i.notes||'')}</td>
@@ -1705,7 +1734,7 @@ function priorityActions(){
   const actions = [];
   state.schools.forEach(raw=>{
     const s = migrateSchool(raw);
-    if(s.submitted) return;
+    if(s.submitted || s.deferred || !s.deadline) return;
     const d = daysUntil(s.deadline);
 
     Object.keys(STAGE_SETS).forEach(key=>{
@@ -1837,18 +1866,22 @@ function renderSchools(){
     el.innerHTML = `<div class="empty">No schools added yet. Click "Add school" to start &mdash; I can look up real deadlines for you.</div>`;
     return;
   }
-  el.innerHTML = sortedSchools().map(raw=>{
+  const cardHtml = (raw)=>{
     const s = migrateSchool(raw);
     const pct = schoolCompletionPct(s);
-    const d = daysUntil(s.deadline);
+    const hasDl = !!s.deadline;
+    const d = hasDl ? daysUntil(s.deadline) : null;
+    const later = !!s.deferred;
     return `
-    <div class="card school-card">
+    <div class="card school-card ${later?'deferred':''}">
       <div class="school-card-top">
         <div>
           <div class="school-name">${escapeHtml(s.name)}</div>
-          <div class="school-deadline">${s.type} · ${fmtDate(s.deadline)} ${d>=0? `(${d} days)` : `<span style="color:var(--red)">overdue</span>`}</div>
+          <div class="school-deadline">${s.type} · ${hasDl ? fmtDate(s.deadline) + (later ? '' : (d>=0? ` (${d} days)` : ` <span style="color:var(--red)">overdue</span>`)) : 'no deadline yet'}</div>
+          ${later ? `<div class="school-deadline" style="color:#b9b0d8;">Applying later${s.deferReason? ' · '+escapeHtml(s.deferReason):''}${s.resumeOn? ' · returns to Active on '+fmtDate(s.resumeOn):''}</div>` : ''}
         </div>
         <div class="row-actions">
+          ${later ? `<button class="btn small" onclick="resumeSchool('${s.id}')">Make active now</button>` : ''}
           <button class="icon-btn" title="Edit" onclick='openSchoolModal(${JSON.stringify(s).replace(/'/g,"&apos;")})'>&#9998;</button>
           <button class="btn secondary small" onclick="deleteSchool('${s.id}')">Remove</button>
         </div>
@@ -1864,7 +1897,7 @@ function renderSchools(){
         ${Object.keys(STAGE_SETS).map(key=>{
           const stages = STAGE_SETS[key];
           const cur = s.items[key].stage;
-          const p = itemPacing(s.deadline, key, cur);
+          const p = (hasDl && !later) ? itemPacing(s.deadline, key, cur) : { status:'ontrack-hidden' };
           return `
           <div class="item-row">
             <span class="item-label">${ITEM_LABELS[key]}</span>
@@ -1903,7 +1936,17 @@ function renderSchools(){
         <button class="btn secondary small" style="margin-top:8px;" onclick="openRecLetterModal('${s.id}')">+ Add recommender</button>
       </div>
     </div>`;
-  }).join('');
+  };
+  const sorted = sortedSchools();
+  const active = sorted.filter(x=>!x.deferred), later = sorted.filter(x=>x.deferred);
+  el.innerHTML = active.map(cardHtml).join('')
+    + (later.length ? `<div class="later-head">Applying later (${later.length})</div>` + later.map(cardHtml).join('') : '');
+}
+function resumeSchool(id){
+  const s = state.schools.find(s=>s.id===id);
+  if(!s) return;
+  s.deferred = false; s.resumedOn = localDateStr(new Date());
+  saveData(); renderSchools(); renderWeekly(); renderTotal(); renderMonthly(); renderHome();
 }
 
 function updateItemStage(schoolId, key, stageIndex){
@@ -1979,6 +2022,11 @@ function deleteSchool(id){
 }
 let editingSchoolId = null;
 let lookupSourceUrl = null;
+function toggleDeferFields(){
+  const on = document.getElementById('school-deferred').checked;
+  document.getElementById('school-defer-fields').style.display = on ? 'block' : 'none';
+  document.getElementById('school-deadline-opt').style.display = on ? 'inline' : 'none';
+}
 function openSchoolModal(school){
   editingSchoolId = school ? school.id : null;
   document.getElementById('school-modal-title').textContent = school ? 'Edit school' : 'Add a school';
@@ -1986,6 +2034,10 @@ function openSchoolModal(school){
   document.getElementById('school-type').value = school ? school.type : 'Early Action';
   document.getElementById('school-deadline').value = school ? school.deadline : '';
   document.getElementById('school-notes').value = school ? school.notes : '';
+  document.getElementById('school-deferred').checked = !!(school && school.deferred);
+  document.getElementById('school-defer-reason').value = (school && school.deferReason) || '';
+  document.getElementById('school-resume-on').value = (school && school.resumeOn) || '';
+  toggleDeferFields();
   document.getElementById('school-lookup-status').textContent='';
   lookupSourceUrl = (school && school.sourceUrl) ? school.sourceUrl : null;
   const sourceEl = document.getElementById('school-lookup-source');
@@ -1999,12 +2051,17 @@ function saveSchool(){
   const type = document.getElementById('school-type').value;
   const deadline = document.getElementById('school-deadline').value;
   const notes = document.getElementById('school-notes').value.trim();
-  if(!name || !deadline){ alert('Add at least a school name and deadline.'); return; }
+  const deferred = document.getElementById('school-deferred').checked;
+  const deferReason = document.getElementById('school-defer-reason').value.trim();
+  const resumeOn = document.getElementById('school-resume-on').value;
+  if(!name || (!deadline && !deferred)){ alert('Add at least a school name and deadline.'); return; }
   if(editingSchoolId){
     const s = state.schools.find(s=>s.id===editingSchoolId);
-    if(s){ s.name=name; s.type=type; s.deadline=deadline; s.notes=notes; s.sourceUrl=lookupSourceUrl||s.sourceUrl||null; }
+    if(s){ s.name=name; s.type=type; s.deadline=deadline; s.notes=notes; s.sourceUrl=lookupSourceUrl||s.sourceUrl||null;
+      s.deferred=deferred; s.deferReason = deferred ? deferReason : ''; s.resumeOn = deferred ? resumeOn : ''; }
   } else {
     state.schools.push({ id: uid(), name, type, deadline, notes, submitted:false, sourceUrl: lookupSourceUrl||null,
+      deferred, deferReason: deferred ? deferReason : '', resumeOn: deferred ? resumeOn : '',
       items: { application:{stage:0}, essays:{stage:0}, testscores:{stage:0}, transcript:{stage:0} },
       customItems: [], recLetters: [] });
   }
@@ -2589,6 +2646,7 @@ function attachCloudSync(){
       state.weeklyTasks = state.weeklyTasks || [];
       ensureCamera();
       rolloverWeeklyTasks();
+      autoResumeSchools();
       if(!state.gettingStarted){
         state.gettingStarted = DEFAULT_GETTING_STARTED.map(d => ({ id: uid(), label:d.label, link:d.link||null, stage: 0 }));
       }
@@ -2743,11 +2801,13 @@ function buildWeeklySummary(){
     lines.push('', 'Ideas to start with:');
     pri.slice(0,4).forEach(a=>lines.push(`- ${a.text}`));
   }
-  const dl = allItems().filter(i=>!i.done && daysUntil(i.date)<=14).slice(0,4);
+  const dl = activeItems().filter(i=>!i.done && daysUntil(i.date)<=14).slice(0,4);
   if(dl.length){
     lines.push('', 'Hard deadlines coming up:');
     dl.forEach(i=>lines.push(`- ${fmtDate(i.date)} — ${i.title}${daysUntil(i.date)<0?' (OVERDUE)':''}`));
   }
+  const laterNames = state.schools.filter(x=>x.deferred).map(x=>x.name);
+  if(laterNames.length) lines.push('', 'Applying later: ' + laterNames.join(', '));
   if(state.camera.goal>0 || fundTotal()>0){
     lines.push('', state.camera.name + ': ' + fmtMoney(fundTotal()) + (state.camera.goal>0 ? ' of ' + fmtMoney(state.camera.goal) : ''));
   }

@@ -102,7 +102,7 @@ function itemPacing(deadline, key, currentStage) {
 function priorityActions(schools, gettingStarted) {
   const actions = [];
   (schools || []).forEach(s => {
-    if (s.submitted) return;
+    if (s.submitted || s.deferred) return;
     if (!s.deadline) return;
     const d = daysUntil(s.deadline);
     const items = s.items || {};
@@ -182,7 +182,7 @@ async function main() {
     items.push({ title: t.title, category: t.category, date: t.date, notes: t.notes });
   }
   for (const s of schools) {
-    if (s.submitted) continue;
+    if (s.submitted || s.deferred) continue;
     if (!s.deadline) continue;
     items.push({ title: `${s.name} — application due`, category: 'school', date: s.deadline, notes: s.type });
   }
@@ -227,6 +227,9 @@ async function main() {
     lines.push('', 'Hard deadlines coming up:');
     upcoming.forEach(i => lines.push(`- ${fmtDate(i.date)} — ${i.title}${daysUntil(i.date) < 0 ? ' (OVERDUE)' : ''}`));
   }
+  const laterNames = schools.filter(s => s.deferred).map(s => s.name);
+  if (laterNames.length) lines.push('', 'Applying later: ' + laterNames.join(', '));
+
   const cam = appData?.camera || {};
   const camTotal = (cam.payments || []).reduce((a, p) => a + (Number(p.amount) || 0), 0);
   const money = n => '$' + (Math.abs(n % 1) > 0.001 ? n.toFixed(2) : String(Math.round(n)));
