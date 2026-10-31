@@ -899,7 +899,7 @@
    to know to hard-refresh manually.
    ========================================================= */
 (function(){
-  const APP_VERSION = '2026-10-11-4';
+  const APP_VERSION = '2026-10-31-1';
   try{
     const params = new URLSearchParams(location.search);
     if(params.get('v') === APP_VERSION) return; // already reloaded fresh
@@ -1179,7 +1179,7 @@ function renderHome(){
 
   const schoolsEl = document.getElementById('home-schools');
   schoolsEl.innerHTML = state.schools.length
-    ? state.schools.map(raw=>{
+    ? sortedSchools().map(raw=>{
         const s = migrateSchool(raw);
         const pct = schoolCompletionPct(s);
         const d = daysUntil(s.deadline);
@@ -1820,13 +1820,24 @@ function dismissGettingStartedBanner(){
   if(el) el.style.display = 'none';
 }
 
+/* Display order only (saved data is never reordered): soonest deadline first,
+   schools with no deadline next, submitted schools at the bottom. */
+function sortedSchools(){
+  return state.schools.slice().sort((a,b)=>{
+    if(!!a.submitted !== !!b.submitted) return a.submitted ? 1 : -1;
+    if(!a.deadline && !b.deadline) return 0;
+    if(!a.deadline) return 1;
+    if(!b.deadline) return -1;
+    return a.deadline.localeCompare(b.deadline);
+  });
+}
 function renderSchools(){
   const el = document.getElementById('schools-content');
   if(!state.schools.length){
     el.innerHTML = `<div class="empty">No schools added yet. Click "Add school" to start &mdash; I can look up real deadlines for you.</div>`;
     return;
   }
-  el.innerHTML = state.schools.map(raw=>{
+  el.innerHTML = sortedSchools().map(raw=>{
     const s = migrateSchool(raw);
     const pct = schoolCompletionPct(s);
     const d = daysUntil(s.deadline);
