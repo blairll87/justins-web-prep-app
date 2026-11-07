@@ -911,7 +911,7 @@
    to know to hard-refresh manually.
    ========================================================= */
 (function(){
-  const APP_VERSION = '2026-10-31-2';
+  const APP_VERSION = '2026-11-07-1';
   try{
     const params = new URLSearchParams(location.search);
     if(params.get('v') === APP_VERSION) return; // already reloaded fresh
@@ -945,11 +945,112 @@ function loadData(){
 /* saveData: writes to localStorage immediately (fast, offline-safe cache),
    and if Firebase is connected, also writes to Firestore so every device
    opening this same link sees the same data — not just this browser. */
-function saveData(){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+function saveData(force){
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){ console.warn('Local save failed', e); }
   if(cloudDocRef){
-    cloudDocRef.set(state).catch(err=> console.warn('Cloud save failed', err));
+    if(force) forceCloudWrite(); else { cloudDirty = true; scheduleCloudFlush(); }
   }
+}
+
+/* =========================================================
+   SAFE CLOUD SAVING
+   Old behavior: every save overwrote the whole shared document, so a device
+   that had fallen behind could erase newer changes made elsewhere, and a failed
+   save was silent. Now: each save re-reads the latest cloud copy and MERGES
+   (per item, by id) before writing, and a visible warning shows if it fails.
+   ========================================================= */
+let cloudDirty = false, cloudFlushing = false, cloudFlushTimer = null, cloudRetryTimer = null;
+let cloudBase = null;   // copy of the cloud data as of our last sync
+const clone = (o)=> JSON.parse(JSON.stringify(o===undefined ? null : o));
+const jeq = (a,b)=> JSON.stringify(a===undefined?null:a) === JSON.stringify(b===undefined?null:b);
+const isIdList = (a)=> Array.isArray(a) && a.every(x=> x && typeof x==='object' && !Array.isArray(x) && x.id);
+
+function mergeList(base, local, remote){
+  base = Array.isArray(base)? base : []; local = Array.isArray(local)? local : []; remote = Array.isArray(remote)? remote : [];
+  const bm = new Map(base.map(x=>[x.id,x])), lm = new Map(local.map(x=>[x.id,x])), rm = new Map(remote.map(x=>[x.id,x]));
+  const out = [], seen = new Set();
+  const decide = (id)=>{
+    const b = bm.get(id), l = lm.get(id), r = rm.get(id);
+    if(l && r) return jeq(l,b) ? r : l;            // local edited it -> keep local, else take newest cloud version
+    if(l && !r) return b && jeq(l,b) ? null : l;    // someone deleted it elsewhere (and we didn't edit) -> stays deleted; new/edited locally -> keep
+    if(!l && r) return b && jeq(r,b) ? null : r;    // we deleted it (and nobody edited) -> stays deleted; new/edited elsewhere -> keep
+    return null;
+  };
+  remote.forEach(x=>{ seen.add(x.id); const v = decide(x.id); if(v) out.push(v); });
+  local.forEach(x=>{ if(seen.has(x.id)) return; seen.add(x.id); const v = decide(x.id); if(v) out.push(v); });
+  return out;
+}
+function mergeValue(base, local, remote){
+  if(Array.isArray(local) || Array.isArray(remote)){
+    if(isIdList(local||[]) && isIdList(remote||[]) && isIdList(base||[])) return mergeList(base, local, remote);
+    return jeq(local, base) ? remote : local;
+  }
+  if(local && remote && typeof local==='object' && typeof remote==='object'){
+    const out = {}, keys = new Set([...Object.keys(local), ...Object.keys(remote), ...Object.keys(base||{})]);
+    keys.forEach(k=>{
+      const b = base ? base[k] : undefined;
+      const hasL = k in local, hasR = k in remote;
+      let v;
+      if(hasL && hasR) v = mergeValue(b, local[k], remote[k]);
+      else if(hasL) v = jeq(local[k], b) ? undefined : local[k];   // removed elsewhere, unchanged here -> stays removed
+      else v = jeq(remote[k], b) ? undefined : remote[k];
+      if(v !== undefined) out[k] = v;
+    });
+    return out;
+  }
+  return jeq(local, base) ? remote : local;
+}
+function mergeStates(base, local, remote){
+  return clone(mergeValue(base||{}, clone(local), clone(remote)));
+}
+function showSyncWarning(on){
+  let el = document.getElementById('sync-warning');
+  if(!el){
+    el = document.createElement('div'); el.id = 'sync-warning';
+    el.style.cssText = 'position:fixed; left:50%; bottom:16px; transform:translateX(-50%); background:#7a1d2a; color:#fff; padding:10px 16px; border-radius:10px; font-size:13px; z-index:9999; max-width:90vw; box-shadow:0 4px 18px rgba(0,0,0,.4);';
+    el.textContent = "Your latest change hasn't saved to the cloud yet. Keep this page open, I'll keep trying.";
+    document.body.appendChild(el);
+  }
+  el.style.display = on ? 'block' : 'none';
+}
+function scheduleCloudFlush(){
+  clearTimeout(cloudFlushTimer);
+  cloudFlushTimer = setTimeout(flushCloud, 300);
+}
+async function flushCloud(){
+  if(!cloudDocRef || !fbDb) return;
+  if(cloudFlushing){ cloudDirty = true; return; }
+  if(!cloudDirty) return;
+  cloudFlushing = true; cloudDirty = false;
+  const localCopy = clone(state);   // clone also strips undefined values Firestore would reject
+  try{
+    const merged = await fbDb.runTransaction(async (tx)=>{
+      const snap = await tx.get(cloudDocRef);
+      const remote = snap.exists ? snap.data() : null;
+      const out = remote ? mergeStates(cloudBase, localCopy, remote) : localCopy;
+      tx.set(cloudDocRef, out);
+      return out;
+    });
+    cloudBase = clone(merged);
+    showSyncWarning(false);
+  }catch(err){
+    console.warn('Cloud save failed', err);
+    cloudDirty = true;
+    showSyncWarning(true);
+    clearTimeout(cloudRetryTimer);
+    cloudRetryTimer = setTimeout(()=>{ scheduleCloudFlush(); }, 8000);
+  }finally{
+    cloudFlushing = false;
+    if(cloudDirty && !cloudRetryTimer) scheduleCloudFlush();
+    else if(!cloudDirty) { clearTimeout(cloudRetryTimer); cloudRetryTimer = null; }
+  }
+}
+window.addEventListener('online', ()=>{ if(cloudDirty) scheduleCloudFlush(); });
+/* Used only for deliberate whole-app replacements (restore from backup). */
+function forceCloudWrite(){
+  if(!cloudDocRef) return;
+  const copy = clone(state);
+  cloudDocRef.set(copy).then(()=>{ cloudBase = clone(copy); showSyncWarning(false); }).catch(err=>{ console.warn('Cloud save failed', err); showSyncWarning(true); });
 }
 
 function loadConfig(){
@@ -2637,7 +2738,16 @@ function attachCloudSync(){
   cloudDocRef = fbDb.collection('appdata').doc('webprep');
   cloudDocRef.onSnapshot((doc)=>{
     if(doc.exists){
-      state = doc.data();
+      const remote = doc.data();
+      const prevBase = cloudBase;
+      cloudBase = clone(remote);
+      if(cloudDirty || cloudFlushing){
+        // we have changes that haven't been saved yet: keep them on top of what the cloud now holds
+        state = mergeStates(prevBase, state, remote);
+        if(!jeq(state, remote)) cloudDirty = true;
+      } else {
+        state = remote;
+      }
       // Firestore doesn't store empty arrays as "missing" but guard anyway
       state.tasks = state.tasks || [];
       state.schools = state.schools || [];
@@ -2653,7 +2763,7 @@ function attachCloudSync(){
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } else {
       // first device to connect seeds the cloud doc with whatever's local
-      cloudDocRef.set(state);
+      forceCloudWrite();
     }
     cloudSynced = true;
     refreshCurrentView();
@@ -2877,7 +2987,7 @@ function restoreBackup(input){
       state.tasks = state.tasks||[]; state.schools = state.schools||[]; state.activities = state.activities||[];
       state.scholarships = state.scholarships||[]; state.weeklyTasks = state.weeklyTasks||[];
       ensureCamera();
-      saveData();
+      saveData(true);
       st.textContent = 'Restored from backup.'; st.className = 'lookup-status success';
       refreshCurrentView(); renderHome();
     }catch(e){ st.textContent = 'Restore failed: ' + e.message; st.className = 'lookup-status error'; }
